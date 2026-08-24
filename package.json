@@ -1,0 +1,52 @@
+{
+  "name": "agenv",
+  "version": "1.0.0",
+  "description": "Portable encrypted AI developer environment manager — capture your configs, publish to GitHub, clone anywhere in 2 commands",
+  "type": "module",
+  "bin": {
+    "agenv": "./dist/agenv.js"
+  },
+  "main": "./dist/agenv.js",
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dotfiles",
+    "environment",
+    "opencode",
+    "claude",
+    "encryption",
+    "age",
+    "backup",
+    "dev-environment"
+  ],
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Utkarshchaudhary009/dotfiles.git"
+  },
+  "scripts": {
+    "build": "bun build ./src/cli.ts --target=node --outfile=dist/agenv.js && node scripts/fix-shebang.mjs",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun install && bun run typecheck && bun run build",
+    "prepare": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "dev": "bun ./src/cli.ts",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "@clack/prompts": "^0.9.0",
+    "chalk": "^5.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "@types/bun": "latest"
+  }
+}

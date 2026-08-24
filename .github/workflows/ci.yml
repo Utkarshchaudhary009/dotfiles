@@ -1,0 +1,65 @@
+name: agenv CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck & CLI Verify
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2.0.1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun x tsc --noEmit
+
+      - name: Build
+        run: bun run build || bun x tsc
+
+      - name: Test
+        run: bun test
+
+      - name: Node Compat Check
+        run: |
+          node dist/agenv.js --version
+          node dist/agenv.js --help | grep -E "publish|push"
+
+      - name: Verify Packaging
+        run: npm pack --dry-run
+
+      - name: CLI Version Check
+        run: bun ./src/cli.ts --version
+
+      - name: CLI Help Check
+        run: bun ./src/cli.ts --help
+
+      - name: CLI Doctor
+        # Doctor might exit non-zero if age/git isn't installed. We allow it to fail the step gracefully.
+        run: bun ./src/cli.ts doctor || true
+
+      - name: CLI Scan (Dry Run)
+        run: bun ./src/cli.ts scan
+
+      - name: Secret Scan
+        uses: gitleaks/gitleaks-action@v2.3.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --source . --log-opts=--all
+

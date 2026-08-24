@@ -1,0 +1,58 @@
+name: Update Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+concurrency:
+  group: docs-update
+  cancel-in-progress: true
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Kilo Code CLI
+        run: npm install -g @kilocode/cli@7.4.20
+
+      - name: Run Kilo Code to update docs
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          cat << 'EOF' > kilo-prompt.md
+          Read the repository (README.md, docs/*.md, skills/agenv/SKILL.md, src/cli.ts command definitions, package.json).
+          Synchronize documentation with the actual CLI: update README.md, docs/CLI.md, docs/SETUP-GUIDE.md, docs/ENVIRONMENTS.md, docs/INSTALL-WITHOUT-NPM.md, skills/agenv/SKILL.md so every documented command/flag exists in the code and matches reality.
+          Fix inconsistencies (command names, flags, key paths like `~/.config/agenv/key.txt`, registry `~/.config/agenv/registry.json`).
+          Do NOT touch source code in src/ or tests/ except if a doc claims something plainly wrong — then prefer fixing the doc.
+          Do NOT run git commands (workflow handles it).
+          Keep changes focused, don't restructure docs.
+          NEVER modify files under .github/workflows/ or any CI/CD configuration.
+          EOF
+          kilo run "$(cat kilo-prompt.md)" --model kilo-auto/free --auto
+          rm kilo-prompt.md
+
+      - name: Commit and push changes
+        # PR flow is preferred over direct push. Commented out for now as permissions are reduced to contents:read.
+        # run: |
+        #   git config user.name "github-actions[bot]"
+        #   git config user.email "github-actions[bot]@users.noreply.github.com"
+        #   git add README.md docs skills
+        #   git diff --cached --quiet || git commit -m "docs: auto-sync docs and skills with CLI (via Kilo Code)"
+        #   gh pr create --title "docs: auto-sync" --body "Automated documentation sync" --base main --head docs-sync
+
