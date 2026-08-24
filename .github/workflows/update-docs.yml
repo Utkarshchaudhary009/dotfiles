@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,11 +48,10 @@ jobs:
           rm kilo-prompt.md
 
       - name: Commit and push changes
-        # PR flow is preferred over direct push. Commented out for now as permissions are reduced to contents:read.
-        # run: |
-        #   git config user.name "github-actions[bot]"
-        #   git config user.email "github-actions[bot]@users.noreply.github.com"
-        #   git add README.md docs skills
-        #   git diff --cached --quiet || git commit -m "docs: auto-sync docs and skills with CLI (via Kilo Code)"
-        #   gh pr create --title "docs: auto-sync" --body "Automated documentation sync" --base main --head docs-sync
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md docs skills
+          git diff --cached --quiet || git commit -m "docs: auto-sync docs and skills with CLI (via Kilo Code)"
+          git push
 
