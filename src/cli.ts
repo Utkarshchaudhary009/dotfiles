@@ -21,6 +21,8 @@ import { bindCommand } from './commands/bind';
 import { unbindCommand } from './commands/unbind';
 import { useCommand } from './commands/use';
 import { syncCommand } from './commands/sync';
+import { selfUpdateCommand } from './commands/self-update';
+import { CLI_VERSION } from './version';
 
 function wrap(fn: (...args: any[]) => Promise<unknown>) {
   return async (...args: any[]) => {
@@ -44,7 +46,7 @@ function wrap(fn: (...args: any[]) => Promise<unknown>) {
 program
   .name('agenv')
   .description('Portable encrypted AI environment manager')
-  .version('1.0.0');
+  .version(CLI_VERSION);
 
 program
   .command('init')
@@ -175,5 +177,10 @@ program
   .argument('<file>', 'Tarball file to import')
   .option('--dir <path>', 'Destination directory')
   .action(wrap(importCommand));
+
+program
+  .command('self-update')
+  .description('Update the agenv CLI to the latest GitHub release')
+  .action(wrap(selfUpdateCommand));
 
 program.parse(process.argv);
