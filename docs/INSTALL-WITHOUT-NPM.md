@@ -16,15 +16,18 @@ bun link
 ```
 *(Ensure you have [Bun installed](https://bun.sh/docs/installation) on Windows, macOS, or Linux).*
 
-### B) Single-File Download (Best for CI/VM)
-The built CLI is a self-contained Node.js script. You can simply download the pre-compiled file from your repository and run it directly. (Requires Node 18+).
+### B) Release Installers (Best for CI/VM & End Users)
+Grab `agenv.js` from the latest GitHub Release — the installer also creates a launcher and puts it on your PATH. (Requires Node 18+; no npm needed.)
 
-```bash
-curl -O https://raw.githubusercontent.com/<your-gh-user>/<repo-url>/main/dist/agenv.js
-chmod +x agenv.js
-node agenv.js --version
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/Utkarshchaudhary009/dotfiles/main/install.ps1 | iex
 ```
-*Tip: You can set up an alias (e.g., `alias agenv="node /path/to/agenv.js"`) for convenience.*
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Utkarshchaudhary009/dotfiles/main/install.sh | bash
+```
+Installed this way? Upgrade anytime with `agenv self-update`.
 
 ### C) Global Install from GitHub
 You can use `npm` to install globally directly from the GitHub repository. It will automatically use the `"prepare": "bun run build"` script defined in the package.
@@ -49,7 +52,7 @@ node agenv.js import env.bundle.tar.gz
 | Method | Needs | Best for |
 |--------|-------|----------|
 | **A) Source via Git** | Git, Bun | Developers, local modifications |
-| **B) Single-File** | Node 18+, `curl` | CI/CD pipelines, disposable VMs, quick bootstrapping |
+| **B) Release Installer** | Node 18+, internet | CI/CD pipelines, disposable VMs, quick bootstrapping |
 | **C) Install from GitHub** | npm, Git, Bun | Standard installation from a private/forked repo |
 | **D) Offline / USB** | Node 18+, `agenv.js`, bundle file | Airgapped machines, high-security offline setups |
 
