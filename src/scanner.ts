@@ -26,23 +26,25 @@ export function isSensitive(name: string): boolean {
 
 /**
  * Category-aware sensitivity for ad-hoc/path-mode adds — mirrors what the
- * scan presets flag (git configs, shell profiles, Claude credentials) on top
- * of the keyword heuristic, so `agenv add ~/.gitconfig` still demands
- * --encrypt even though its name carries no sensitive keyword.
+ * scan presets flag (git configs, shell profiles, Claude credentials) and
+ * always keeps the generic keyword heuristic, so `agenv add ~/.gitconfig`
+ * demands --encrypt even without a sensitive keyword, and a git-category
+ * file named e.g. `tokens.json` stays flagged too.
  */
 export function isSensitiveForCategory(categoryId: string, targetRel: string): boolean {
   const segments = targetRel.replace(/\\/g, '/').split('/');
   const base = (segments[segments.length - 1] || '').toLowerCase();
   switch (categoryId) {
     case 'git':
-      return base === '.gitconfig' || base === '.gitignore_global';
+      return base === '.gitconfig' || base === '.gitignore_global' || isSensitive(targetRel);
     case 'shell':
       return (
         ['.bashrc', '.zshrc', '.bash_profile', '.profile'].includes(base) ||
-        base.endsWith('powershell_profile.ps1')
+        base.endsWith('powershell_profile.ps1') ||
+        isSensitive(targetRel)
       );
     case 'claude':
-      return base === '.credentials.json';
+      return base === '.credentials.json' || isSensitive(targetRel);
     default:
       return isSensitive(targetRel);
   }

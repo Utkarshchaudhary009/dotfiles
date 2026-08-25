@@ -61,8 +61,8 @@ export interface CaptureSummary {
   unchanged: number;
   skipped: number;
   failed: number;
-  /** targetRel values actually captured — lets callers report honestly. */
-  capturedRels: string[];
+  /** IDs of tracked files actually captured — lets callers report honestly. */
+  capturedIds: string[];
 }
 
 export interface CaptureOptions {
@@ -92,7 +92,7 @@ export async function captureTracked(
   files: TrackedFile[],
   opts: CaptureOptions = {}
 ): Promise<CaptureSummary> {
-  const summary: CaptureSummary = { captured: 0, unchanged: 0, skipped: 0, failed: 0, capturedRels: [] };
+  const summary: CaptureSummary = { captured: 0, unchanged: 0, skipped: 0, failed: 0, capturedIds: [] };
   let stopAsking = false;
 
   for (const tf of files) {
@@ -107,7 +107,7 @@ export async function captureTracked(
       if (state === 'repo-missing') {
         await captureEntry(rootDir, manifest, tf);
         summary.captured++;
-        summary.capturedRels.push(tf.targetRel);
+        summary.capturedIds.push(tf.id);
         log.ok(`captured ${tf.targetRel}`);
         continue;
       }
@@ -152,7 +152,7 @@ export async function captureTracked(
       if (keepLocal) {
         await captureEntry(rootDir, manifest, tf);
         summary.captured++;
-        summary.capturedRels.push(tf.targetRel);
+        summary.capturedIds.push(tf.id);
         log.ok(`captured (kept local) ${tf.targetRel}`);
       } else {
         summary.skipped++;
@@ -252,9 +252,14 @@ export interface ApplyOptions {
   yes?: boolean;
 }
 
-/** Where a tracked file lands in files/<category>/<slug>; collisions here mean data loss. */
+/**
+ * Where a tracked file lands in files/<category>/<stored-name>; collisions
+ * here mean data loss. Keys use the ACTUAL stored filename — `<slug>` for
+ * plaintext vs `<slug>.age` for encrypted — so a plaintext/encrypted pair on
+ * the same target can coexist while real overwrites stay blocked.
+ */
 function storeKeyOf(tf: TrackedFile): string {
-  return `${tf.category}::${slugFor(tf.targetRel)}`;
+  return `${tf.category}::${tf.encrypt ? 'age:' : 'raw:'}${slugFor(tf.targetRel)}`;
 }
 
 /**
@@ -348,10 +353,11 @@ export async function applyCandidates(
   if (refreshEntries.length > 0) {
     const sum = await captureTracked(rootDir, manifest, refreshEntries, { yes: opts.yes });
     // Only claim updates for files that were actually captured this run —
-    // unchanged/locked/skipped files must not show up as updated.
-    const capturedSet = new Set(sum.capturedRels);
+    // unchanged/locked/skipped files must not show up as updated. Keyed by
+    // tracked-file ID so same-named files in different categories stay distinct.
+    const capturedSet = new Set(sum.capturedIds);
     for (const tf of refreshEntries) {
-      if (capturedSet.has(tf.targetRel)) outcome.updated.push(targetPathOf(manifest, tf));
+      if (capturedSet.has(tf.id)) outcome.updated.push(targetPathOf(manifest, tf));
     }
     if (sum.failed > 0) {
       outcome.failed.push({ path: '(refresh)', error: `${sum.failed} file(s) failed during refresh` });

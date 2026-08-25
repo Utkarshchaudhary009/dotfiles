@@ -122,7 +122,9 @@ describe("add command", () => {
     expect(out1.added.some(p => p.replace(/\\/g, "/").includes("skills/demo/SKILL.md"))).toBe(true);
     expect(out1.added.some(p => p.includes("tui.json"))).toBe(false);
 
-    // Manually track the non-discovered file (as init/manual add would).
+    // Track the non-discovered file the way a real add would: manifest entry
+    // PLUS repo-store copy of the current disk content, so the refresh below
+    // hits the genuine conflict path (disk drifted vs stored copy).
     const m1 = await loadManifest(env.repoDir);
     m1.files.push({
       id: "opencode:tui.json",
@@ -131,6 +133,7 @@ describe("add command", () => {
       encrypt: false,
     });
     await saveManifest(env.repoDir, m1);
+    await fs.writeFile(path.join(env.repoDir, "files", "opencode", "tui.json"), '{"theme":"tokyonight"}');
     await writeDisk(env, "tui.json", '{"theme":"drifted"}');
 
     const out2 = await withFakeHome(env.homeRoot, () =>
