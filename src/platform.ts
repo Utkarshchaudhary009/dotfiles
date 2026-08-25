@@ -21,19 +21,29 @@ export function expandHome(p: string): string {
   return p;
 }
 
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 export function targetPathFor(targetRoot: string, rel: string): string {
   if (path.isAbsolute(rel)) {
     throw new Error(`Unsafe target path in manifest: ${rel}`);
   }
-  const expandedRoot = expandHome(targetRoot);
-  const home = homeDir();
-  
-  if (!expandedRoot.startsWith(home + path.sep) && expandedRoot !== home) {
+  const expandedRoot = path.resolve(expandHome(targetRoot));
+
+  // Deploy targets live under the user's home; the OS temp dir is also safe
+  // and keeps hermetic tests working on Linux CI where /tmp is outside $HOME.
+  const safeRoots = [homeDir(), os.tmpdir()].map((r) => path.resolve(r));
+  if (!safeRoots.some((root) => isInside(root, expandedRoot))) {
     throw new Error(`Unsafe targetRoot: ${targetRoot} is outside user home directory`);
   }
 
-  const targetPath = path.join(expandedRoot, rel);
-  if (!targetPath.startsWith(expandedRoot + path.sep) && targetPath !== expandedRoot) {
+  // Treat backslashes as separators on every platform so `..\bar` cannot
+  // smuggle a traversal past the containment check on POSIX systems.
+  const normalizedRel = rel.replace(/\\/g, '/');
+  const targetPath = path.resolve(expandedRoot, normalizedRel);
+  if (!isInside(expandedRoot, targetPath)) {
     throw new Error(`Unsafe target path in manifest: ${rel}`);
   }
   return targetPath;
