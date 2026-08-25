@@ -1,6 +1,6 @@
 # agenv CLI Reference
 
-This document covers all 20 commands available in the `agenv` (Antigravity Environment Manager) CLI. 
+This document covers all 21 commands available in the `agenv` (Antigravity Environment Manager) CLI. 
 
 ---
 
@@ -190,7 +190,7 @@ agenv update /path/to/my-env
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-m <msg>` | Provide a custom commit message (defaults to "Update environment files"). |
+| `-m, --message <msg>` | Provide a custom commit message (defaults to "Update agenv environment"). |
 
 **Usage Examples:**
 ```bash
@@ -205,13 +205,13 @@ agenv push -m "Add custom SSH config"
 
 ## `agenv sync [target]`
 
-**Purpose:** A unified command to keep environments fully synchronized. It pulls remote changes via `--ff-only`, expands them to your local system, and then automatically pushes local modifications back to the remote.
+**Purpose:** A unified command to keep environments fully synchronized. It pulls remote changes via `--ff-only`, expands them to your local system, then checks for local changes. With `--push`, it commits and pushes local modifications back to the remote. Without `--push`, it interactively prompts you or skips the push step.
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `--push` | Automatically commits and pushes local changes back to the remote without prompting. |
-| `--no-push` | Prevents pushing local changes (useful for strictly pulling). |
+| `--push` | Commit and push local changes to the remote. |
+| `--no-push` | Do not push local changes (skip the push step entirely). |
 | `--yes` | Skip interactive prompts. |
 
 **Usage Examples:**
@@ -401,4 +401,18 @@ agenv import my-env.tar.gz
 **Usage Examples:**
 ```bash
 agenv help
+```
+
+---
+
+## `agenv self-update`
+
+**Purpose:** Updates the `agenv` CLI to the latest GitHub release. Use this instead of `npm update -g agenv` when installed via the release installer.
+
+**Options:**
+*None*
+
+**Usage Examples:**
+```bash
+agenv self-update
 ```

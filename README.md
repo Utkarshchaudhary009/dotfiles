@@ -75,6 +75,7 @@ Keep both the CLI and your environment current:
   ```bash
   npm update -g agenv
   # or: npm install -g agenv@latest
+  # or: agenv self-update (if installed via release installer)
   ```
 - **Check your CLI version:**
   ```bash
@@ -128,9 +129,9 @@ Found 12 matching files across 4 categories.
 | `agenv add` | Add a file to the pack | `<file>`, `--encrypt`, `-c <category>`, `--allow-plaintext-secrets` |
 | `agenv remove` | Remove a file from the pack | `<file\|id>`, `--no-delete` |
 | `agenv scan` | Show discoverable config files grouped by category (no changes made) | |
-| `agenv expand` | Deploy all tracked files from the repo to your HOME directory | `--dry-run`, `--force`, `--yes` |
-| `agenv update` | Run git pull and automatically run `expand` | |
-| `agenv push` | Commit and push changes back to the remote repository | `-m <msg>` |
+| `agenv expand` | Deploy tracked files from the repo to your home directory | `[target]`, `--dry-run`, `--force`, `--yes` |
+| `agenv update` | Pull latest changes and expand | `[target]` |
+| `agenv push` | Commit and push changes back to the remote repository | `-m, --message <msg>` |
 | `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--yes` |
 | `agenv export` | Bundle env to portable `.tar.gz` archive (no git needed) | `--out <path>` |
 | `agenv import` | Restore an exported environment tarball | `<file>`, `--dir <path>` |
@@ -141,6 +142,7 @@ Found 12 matching files across 4 categories.
 | `agenv unbind` | Remove an environment from the registry | `<name>`, `--yes` |
 | `agenv use` | Set the active environment | `<name>`, `--clear` |
 | `agenv doctor` | Run environment and dependency health check | |
+| `agenv self-update` | Update the agenv CLI to the latest GitHub release | |
 | `agenv help` | Display CLI help menu | |
 
 > **Note:** `[target]` can be a registered name, a local path, or a Git URL. It defaults to the active environment or current working directory.
@@ -174,7 +176,7 @@ The manifest (`agenv.json`) and repo directory will automatically organize these
 |---------|------------------|
 | **"age command not found"** | The environment is missing the `age` binary. Run `agenv doctor` to verify your dependencies. |
 | **"Failed to decrypt: key not found"** | Your `key.txt` is missing from `~/.config/agenv/key.txt`. Restore it from your password manager backup. |
-| **"Not a agenv repository"** | You are running repository commands outside of an initialized directory. `cd` into your environment repo first. |
+| **"Not in an agenv repository"** | You are running repository commands outside of an initialized directory. `cd` into your environment repo first. |
 | **"gh command not found"** | Optional dependency. If missing, `agenv publish` will gracefully fallback to manual URL prompt (see Setup Guide). |
 
 *See the [Setup Guide](docs/SETUP-GUIDE.md) for more troubleshooting tips.*

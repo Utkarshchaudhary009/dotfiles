@@ -24,15 +24,15 @@ description: Use when the user wants to backup their environment, manage dotfile
 - **Pointers:** Using `--yes` selects defaults. The CLI will refuse to add unencrypted sensitive files if `age` is missing (requires `--allow-plaintext-secrets` to override, but prefer fixing `age` installation instead).
 
 ## Managing Tracked Files
-- **Add:** `agenv add <file> [--encrypt] [-c <category>]` (Auto-registers custom categories. Assigns a default category per file type). `<file>` can be an absolute path or use `~`.
+- **Add:** `agenv add <file> [--encrypt] [-c <category>] [--allow-plaintext-secrets]` (Auto-registers custom categories. Assigns a default category per file type). `<file>` can be an absolute path or use `~`.
 - **Remove:** `agenv remove <file|id> [--no-delete]`
 - **SECURITY RULE:** ALWAYS use `--encrypt` for files containing secrets, tokens, credentials, or API keys (e.g., auth JSON, `.credentials`, accounts, keys). Sensitivity detection is mostly handled automatically at init, but manual additions by the agent must enforce this.
 
 ## Deploy / Sync Commands
-- `agenv expand [--dry-run] [target]` — Deploys the environment to `$HOME`. Idempotent operation; modified local files are skipped unless forced.
+- `agenv expand [--dry-run] [--force] [--yes] [target]` — Deploys the environment to `$HOME`. Idempotent operation; modified local files are skipped unless forced.
 - `agenv update [target]` — Pulls latest changes from remote + expands.
 - `agenv sync [target] [--push] [--no-push] [--yes]` — Pulls → expands → commits and pushes local changes. Use `--push` to push automatically, or `--no-push` to only report. 
-- `agenv push [-m msg]` — Commits and pushes changes.
+- `agenv push [-m, --message <msg>]` — Commits and pushes changes.
 - `agenv status [target]` — Shows current status (local changes, sync state).
 - `agenv list [target]` — Lists files tracked in the environment.
 *(Note: `[target]` can be a registry name, a local path, or a Git URL. Defaults to the active environment or CWD).*
@@ -54,6 +54,7 @@ description: Use when the user wants to backup their environment, manage dotfile
 
 ## Doctor & Hygiene
 - `agenv doctor` — Validates the installation, `age` key presence, and `agenv.json` manifest. Run this if encountering environment problems.
+- `agenv self-update` — Updates the agenv CLI to the latest GitHub release.
 
 ## Agent Workflow Recipes
 1. **Help user capture their environment:** 

@@ -179,7 +179,7 @@ You can bypass the prompt using the `--attach` or `--new` flags.
 |---------|------------------|
 | **"age command not found"** | Your system lacks the `age` binary. Install it via `brew install age`, `apt install age`, etc. |
 | **"Failed to decrypt: key not found"** | You ran `agenv clone` or `expand` but `~/.config/agenv/key.txt` is missing. Restore it from your password manager. |
-| **"Not an agenv repository"** | You are running repository commands outside the `agenv` folder. `cd` into the cloned folder first. |
+| **"Not in an agenv repository"** | You are running repository commands outside the `agenv` folder. `cd` into the cloned folder first. |
 | **"gh command not found"** / **Not authed** | Run `gh auth login` first, or manually create the repo on GitHub and use `agenv publish --remote <url>`. |
 | **Push rejected** | There are upstream changes. Run `agenv update` first to merge remote changes. |
 | **"Local changes detected" during sync** | `agenv sync` found modifications but `--push` was not specified. Follow the interactive prompt to push, or use `agenv sync --push`. |
@@ -192,5 +192,5 @@ You can bypass the prompt using the `--attach` or `--new` flags.
 
 Two things can be updated independently:
 
-- **The CLI itself** — `agenv` is a global npm package. Update it with `npm update -g agenv` (or `npm install -g agenv@latest`), and check your version with `agenv --version`.
+- **The CLI itself** — `agenv` is a global npm package. Update it with `npm update -g agenv` (or `npm install -g agenv@latest`), or use `agenv self-update` if installed via the release installer. Check your version with `agenv --version`.
 - **Your environment** — inside an environment repo, run `agenv update` to pull the latest remote changes and automatically re-expand them to your system.
