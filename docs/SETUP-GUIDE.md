@@ -69,6 +69,8 @@ agenv publish
 - `--public`: Make the remote repository public (safe if secrets are encrypted!).
 - `--name <repoName>`: Specify a custom repository name.
 - `--remote <url>`: Bypass prompt and use this exact Git remote URL.
+- `--attach`: Attach to an existing repository if one with the same name already exists.
+- `--new`: Create a new repository even if one with the same name exists.
 - `--yes`: Accept defaults automatically.
 
 **Example Output:**

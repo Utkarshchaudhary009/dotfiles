@@ -1,6 +1,6 @@
 # agenv CLI Reference
 
-This document covers all 21 commands available in the `agenv` (Antigravity Environment Manager) CLI. 
+This document covers all 20 commands available in the `agenv` (Antigravity Environment Manager) CLI.
 
 ---
 
@@ -388,20 +388,6 @@ agenv import my-env.tar.gz --dir ~/my-imported-env
 agenv import my-env.tar.gz
 ```
 **Notes:** If the archive contains encrypted files, you must ensure your `age` key is properly configured before running this command.
-
----
-
-## `agenv help`
-
-**Purpose:** Prints the standard help menu for the CLI, outlining available commands and usage hints.
-
-**Options:**
-*None*
-
-**Usage Examples:**
-```bash
-agenv help
-```
 
 ---
 

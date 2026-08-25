@@ -143,7 +143,6 @@ Found 12 matching files across 4 categories.
 | `agenv use` | Set the active environment | `<name>`, `--clear` |
 | `agenv doctor` | Run environment and dependency health check | |
 | `agenv self-update` | Update the agenv CLI to the latest GitHub release | |
-| `agenv help` | Display CLI help menu | |
 
 > **Note:** `[target]` can be a registered name, a local path, or a Git URL. It defaults to the active environment or current working directory.
 > For deep-dives into each command, see [docs/CLI.md](docs/CLI.md).
@@ -187,7 +186,7 @@ Want to improve `agenv`? Setup is quick:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/dotfiles.git
+git clone https://github.com/Utkarshchaudhary009/dotfiles.git
 
 # Install dependencies via Bun
 bun install
