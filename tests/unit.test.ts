@@ -61,6 +61,11 @@ describe("unit tests", () => {
       expect(() => targetPathFor(root, "..\\bar")).toThrow();
       expect(() => targetPathFor(root, "bar/../../baz")).toThrow();
     });
+
+    test("dot-prefixed filenames are not treated as traversal", () => {
+      const p = targetPathFor("~/foo", "..config.json");
+      expect(p.endsWith("..config.json")).toBe(true);
+    });
   });
 
   describe("isSensitive", () => {
