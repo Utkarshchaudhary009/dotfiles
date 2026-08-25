@@ -28,14 +28,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Kilo Code CLI
-        run: npm install -g @kilocode/cli@7.4.20
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai@1.18.23
 
-      - name: Run Kilo Code to update docs
+      - name: Run OpenCode to update docs
         timeout-minutes: 30
         shell: bash
         run: |
-          cat << 'EOF' > kilo-prompt.md
+          cat << 'EOF' > opencode-prompt.md
           Read the repository (README.md, docs/*.md, skills/agenv/SKILL.md, src/cli.ts command definitions, package.json).
           Synchronize documentation with the actual CLI: update README.md, docs/CLI.md, docs/SETUP-GUIDE.md, docs/ENVIRONMENTS.md, docs/INSTALL-WITHOUT-NPM.md, skills/agenv/SKILL.md so every documented command/flag exists in the code and matches reality.
           Fix inconsistencies (command names, flags, key paths like `~/.config/agenv/key.txt`, registry `~/.config/agenv/registry.json`).
@@ -44,14 +44,25 @@ jobs:
           Keep changes focused, don't restructure docs.
           NEVER modify files under .github/workflows/ or any CI/CD configuration.
           EOF
-          kilo run "$(cat kilo-prompt.md)" --model kilo-auto/free --auto
-          rm kilo-prompt.md
+          # Walk free Zen models first; fall back to the CLI's default model.
+          set +e
+          for m in opencode/grok-code opencode/code-supernova ""; do
+            echo "Trying model: ${m:-<default>}"
+            if [ -z "$m" ]; then
+              opencode run "$(cat opencode-prompt.md)" && ok=1 && break
+            else
+              opencode run "$(cat opencode-prompt.md)" --model "$m" && ok=1 && break
+            fi
+          done
+          set -e
+          rm -f opencode-prompt.md
+          [ "${ok:-}" = "1" ] || { echo '::error::all OpenCode models failed'; exit 1; }
 
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md docs skills
-          git diff --cached --quiet || git commit -m "docs: auto-sync docs and skills with CLI (via Kilo Code)"
+          git diff --cached --quiet || git commit -m "docs: auto-sync docs and skills with CLI (via OpenCode)"
           git push
 
