@@ -27,14 +27,19 @@ export const HINTS = {
 /**
  * Map any thrown value to a message plus an optional actionable hint, so the
  * CLI never surfaces a bare ENOENT without telling the user what to do next.
+ * Explicit CLIError hints win; unhinted CLIErrors still get classified below.
  */
 export function describeError(e: unknown): { message: string; hint?: string } {
-  if (e instanceof CLIError) {
+  if (e instanceof CLIError && e.hint) {
     return { message: e.message, hint: e.hint };
   }
   const message = e instanceof Error ? e.message : String(e);
 
-  if (/ENOENT[\s\S]*key\.txt/i.test(message)) {
+  // Only treat key.txt ENOENT as the agenv key failure when the path looks like
+  // the agenv key location (~/.config/agenv/key.txt); an unrelated missing file
+  // that merely happens to be named key.txt stays generic.
+  // Separators may appear escaped/doubled in raw error strings, hence [ /\\ ]+.
+  if (/ENOENT[\s\S]*[/\\]+agenv[/\\]+key\.txt/i.test(message) || /ENOENT[\s\S]*[/\\]+\.config[/\\]+key\.txt/i.test(message)) {
     return {
       message: `Encryption key not found (${expandHome(DEFAULT_KEY_PATH)})`,
       hint: HINTS.keyMissing(),

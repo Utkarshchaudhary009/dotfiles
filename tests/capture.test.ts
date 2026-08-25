@@ -11,6 +11,7 @@ import {
 } from "../src/capture";
 import { whichBin } from "../src/deps";
 import { runProcess } from "../src/proc";
+import { decryptToMemory } from "../src/deploy";
 
 // Module scope so the value is available inside sync describe bodies.
 const hasAgeTooling = await (async () => {
@@ -40,6 +41,7 @@ describe("capture engine", () => {
   let homeRoot: string;
   let ocRoot: string;
   let manifest: Manifest;
+  let ageKeyPath: string;
 
   beforeAll(async () => {
     tmpBase = await fs.mkdtemp(path.join(os.tmpdir(), "agenv-capture-"));
@@ -54,6 +56,7 @@ describe("capture engine", () => {
     if (hasAgeTooling) {
       await runProcess(["age-keygen", "-o", keyPath]);
     }
+    ageKeyPath = keyPath;
 
     manifest = buildManifest(repoDir, homeRoot, keyPath);
     await saveManifest(repoDir, manifest);
@@ -137,10 +140,19 @@ describe("capture engine", () => {
     expect(stored).toBe("c2-drifted");
 
     // Persistence is the caller's job (lock + saveManifest) — prove it round-trips.
-    const { saveManifest } = await import("../src/manifest");
     await saveManifest(repoDir, manifest);
     const reloaded = await loadManifest(repoDir);
     expect(reloaded.files.some(f => f.id === "opencode:c.json")).toBe(true);
+
+    // Re-running update against an unchanged file must NOT claim an update.
+    const out4 = await applyCandidates(
+      repoDir,
+      manifest,
+      [{ category: "opencode", sourcePath: path.join(ocRoot, "c.json"), targetRel: "c.json" }],
+      { update: true, yes: true }
+    );
+    expect(out4.updated).toHaveLength(0);
+    expect(out4.skipped).toHaveLength(0);
   });
 
   test("sensitive candidates require --encrypt", async () => {
@@ -176,7 +188,11 @@ describe("capture engine", () => {
       targetRel: "accounts.json",
       encrypt: true,
     });
-    expect(state === "unchanged" || state === "locked").toBe(true);
+    // "locked" is also what decrypt failures look like, so only an exact
+    // "unchanged" proves the round trip; verify bytes directly as well.
+    expect(state).toBe("unchanged");
+    const decrypted = await decryptToMemory(stored, ageKeyPath);
+    expect(decrypted).toBe('{"token":"abc"}');
   });
 
   test("collectCandidatesFromPath recurses dirs but skips node_modules/.git", async () => {
@@ -193,4 +209,42 @@ describe("capture engine", () => {
     expect(rels.some(r => r.includes("node_modules"))).toBe(false);
     expect(rels.some(r => r.split("/").includes(".git"))).toBe(false);
   });
+
+  test("store-path collisions are rejected instead of clobbering", async () => {
+    await writeDisk(path.join("deep", "x.json"), "one");
+    const first = await applyCandidates(
+      repoDir,
+      manifest,
+      [{ category: "opencode", sourcePath: path.join(ocRoot, "deep", "x.json"), targetRel: path.join("deep", "x.json") }],
+      {}
+    );
+    expect(first.added).toHaveLength(1);
+
+    // slugFor() collapses deep/x.json and deep__x.json to the same store file.
+    await writeDisk("deep__x.json", "two");
+    const second = await applyCandidates(
+      repoDir,
+      manifest,
+      [{ category: "opencode", sourcePath: path.join(ocRoot, "deep__x.json"), targetRel: "deep__x.json" }],
+      {}
+    );
+    expect(second.added).toHaveLength(0);
+    expect(second.failed[0].error).toContain("collision");
+
+    const storedCollided = await fs.readFile(path.join(repoDir, "files", "opencode", "deep__x.json"), "utf8");
+    expect(storedCollided).toBe("one"); // original capture untouched
+  });
+
+  // Windows needs developer mode / admin rights to create symlinks.
+  (process.platform === "win32" ? test.skip : test)(
+    "rejects a top-level symlink that resolves outside the category root",
+    async () => {
+      const secret = path.join(tmpBase, "outside-secret.txt");
+      await fs.writeFile(secret, "topsecret");
+      const link = path.join(ocRoot, "escape-link.json");
+      await fs.symlink(secret, link);
+
+      await expect(collectCandidatesFromPath(link, "opencode", ocRoot)).rejects.toThrow(/outside/);
+    }
+  );
 });

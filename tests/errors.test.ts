@@ -31,6 +31,17 @@ describe("describeError", () => {
     expect(hint).toBe(HINTS.ghAuth);
   });
 
+  test("unhinted CLIError still gets catalog hints", () => {
+    const { hint } = describeError(new CLIError("age or age-keygen not found on PATH"));
+    expect(hint).toBe(HINTS.ageMissing);
+  });
+
+  test("unrelated key.txt ENOENT keeps the generic usage hint", () => {
+    const { message, hint } = describeError(new Error("ENOENT: no such file or directory, open 'D:\\data\\key.txt'"));
+    expect(message).not.toContain("Encryption key not found");
+    expect(hint).toContain("--help");
+  });
+
   test("plain errors pass through without hints", () => {
     const { message, hint } = describeError("weird failure");
     expect(message).toBe("weird failure");

@@ -1,12 +1,13 @@
 import * as clack from '@clack/prompts';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Manifest, TrackedFile, repoStorePath } from './manifest';
+import { Manifest, TrackedFile, repoStorePath, slugFor } from './manifest';
 import { targetPathFor, expandHome } from './platform';
 import { pathExists, listFilesRecursive, fileHash, readText } from './fs';
 import { captureFiles, decryptToMemory } from './deploy';
 import { log, isJsonMode } from './logger';
 import { CLIError } from './errors';
+import { isSensitiveForCategory } from './scanner';
 
 /** Relationship between a tracked file's disk copy and its repo store copy. */
 export type TrackState =
@@ -60,6 +61,8 @@ export interface CaptureSummary {
   unchanged: number;
   skipped: number;
   failed: number;
+  /** targetRel values actually captured — lets callers report honestly. */
+  capturedRels: string[];
 }
 
 export interface CaptureOptions {
@@ -89,7 +92,7 @@ export async function captureTracked(
   files: TrackedFile[],
   opts: CaptureOptions = {}
 ): Promise<CaptureSummary> {
-  const summary: CaptureSummary = { captured: 0, unchanged: 0, skipped: 0, failed: 0 };
+  const summary: CaptureSummary = { captured: 0, unchanged: 0, skipped: 0, failed: 0, capturedRels: [] };
   let stopAsking = false;
 
   for (const tf of files) {
@@ -104,6 +107,7 @@ export async function captureTracked(
       if (state === 'repo-missing') {
         await captureEntry(rootDir, manifest, tf);
         summary.captured++;
+        summary.capturedRels.push(tf.targetRel);
         log.ok(`captured ${tf.targetRel}`);
         continue;
       }
@@ -148,6 +152,7 @@ export async function captureTracked(
       if (keepLocal) {
         await captureEntry(rootDir, manifest, tf);
         summary.captured++;
+        summary.capturedRels.push(tf.targetRel);
         log.ok(`captured (kept local) ${tf.targetRel}`);
       } else {
         summary.skipped++;
@@ -173,6 +178,8 @@ export interface SyncDecision {
  * files should be captured into the repo first ("keep mine") and which should
  * be overwritten by the repo/remote copy ("take remote").
  * Non-interactive runs keep every local modification (never clobber silently).
+ * Consumed by the Phase 3 sync rework (`agenv sync` conflict resolution);
+ * until that lands it is exercised directly by tests.
  */
 export async function resolveExpandConflicts(
   rootDir: string,
@@ -245,11 +252,9 @@ export interface ApplyOptions {
   yes?: boolean;
 }
 
-const SENSITIVE_KEYWORDS = ['auth', 'credentials', 'token', 'accounts', 'backup', '.env', 'keys', 'secret'];
-
-export function isSensitiveRel(rel: string): boolean {
-  const lower = rel.toLowerCase();
-  return SENSITIVE_KEYWORDS.some(kw => lower.includes(kw));
+/** Where a tracked file lands in files/<category>/<slug>; collisions here mean data loss. */
+function storeKeyOf(tf: TrackedFile): string {
+  return `${tf.category}::${slugFor(tf.targetRel)}`;
 }
 
 /**
@@ -257,6 +262,10 @@ export function isSensitiveRel(rel: string): boolean {
  * add untracked candidates to the in-memory manifest + capture them, and with
  * `update` also refresh drifted already-tracked candidates via captureTracked.
  * Mutates the passed manifest; the caller owns lock + saveManifest.
+ *
+ * Per-file semantics: one failing candidate never sinks the batch. `added`
+ * only lists files whose bytes actually reached the repo store; store-path
+ * collisions are rejected instead of clobbering an existing entry's copy.
  */
 export async function applyCandidates(
   rootDir: string,
@@ -265,8 +274,13 @@ export async function applyCandidates(
   opts: ApplyOptions = {}
 ): Promise<ApplyOutcome> {
   const outcome: ApplyOutcome = { added: [], updated: [], skipped: [], failed: [] };
-  const newEntries: TrackedFile[] = [];
+  const pendingNew: { cand: FileCandidateInput; tf: TrackedFile }[] = [];
   const refreshEntries: TrackedFile[] = [];
+
+  // Seed with every existing entry so a new add cannot overwrite the stored
+  // copy of a file that is already tracked under a colliding slug.
+  const storeOwners = new Map<string, TrackedFile>();
+  for (const f of manifest.files) storeOwners.set(storeKeyOf(f), f);
 
   for (const cand of candidates) {
     try {
@@ -284,7 +298,9 @@ export async function applyCandidates(
         continue;
       }
 
-      const sensitive = !!cand.sensitive || isSensitiveRel(cand.targetRel);
+      // Candidate-provided sensitivity wins, but the engine double-checks with
+      // the same category rules the scanner uses (e.g. ~/.gitconfig, profiles).
+      const sensitive = !!cand.sensitive || isSensitiveForCategory(cand.category, cand.targetRel);
       if (sensitive && !opts.encrypt && !opts.allowPlaintextSecrets) {
         outcome.skipped.push({ path: cand.sourcePath, reason: 'looks sensitive — re-run with --encrypt' });
         continue;
@@ -296,25 +312,47 @@ export async function applyCandidates(
         targetRel: cand.targetRel,
         encrypt: !!opts.encrypt,
       };
+
+      const owner = storeOwners.get(storeKeyOf(tf));
+      if (owner && owner !== tf) {
+        outcome.failed.push({
+          path: cand.sourcePath,
+          error: `store collision: '${tf.targetRel}' maps to the same stored file as '${owner.targetRel}' in category '${tf.category}'`,
+        });
+        continue;
+      }
+
       manifest.files.push(tf);
-      newEntries.push(tf);
-      outcome.added.push(cand.sourcePath);
+      storeOwners.set(storeKeyOf(tf), tf);
+      pendingNew.push({ cand, tf });
     } catch (err) {
       outcome.failed.push({ path: cand.sourcePath, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  if (newEntries.length > 0) {
-    await captureFiles(
-      rootDir,
-      manifest,
-      newEntries.map(tf => ({ src: targetPathOf(manifest, tf), tf }))
-    );
+  // Capture new entries one at a time so a single bad file cannot reject the
+  // whole batch after earlier files were already written; roll back the
+  // manifest entry when its capture fails.
+  for (const { cand, tf } of pendingNew) {
+    try {
+      await captureFiles(rootDir, manifest, [{ src: cand.sourcePath, tf }]);
+      outcome.added.push(cand.sourcePath);
+    } catch (err) {
+      const idx = manifest.files.indexOf(tf);
+      if (idx >= 0) manifest.files.splice(idx, 1);
+      storeOwners.delete(storeKeyOf(tf));
+      outcome.failed.push({ path: cand.sourcePath, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   if (refreshEntries.length > 0) {
     const sum = await captureTracked(rootDir, manifest, refreshEntries, { yes: opts.yes });
-    for (const tf of refreshEntries) outcome.updated.push(targetPathOf(manifest, tf));
+    // Only claim updates for files that were actually captured this run —
+    // unchanged/locked/skipped files must not show up as updated.
+    const capturedSet = new Set(sum.capturedRels);
+    for (const tf of refreshEntries) {
+      if (capturedSet.has(tf.targetRel)) outcome.updated.push(targetPathOf(manifest, tf));
+    }
     if (sum.failed > 0) {
       outcome.failed.push({ path: '(refresh)', error: `${sum.failed} file(s) failed during refresh` });
     }
@@ -330,18 +368,44 @@ const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'cache', '.cache']);
 /**
  * Expand a user-supplied file or directory into candidates whose targetRel is
  * relative to the category root — so expand() restores every file to its exact
- * original location. Directories recurse, skipping node_modules/.git/cache.
+ * original location. Directories recurse, pruning node_modules/.git/cache
+ * during the walk. Every candidate must resolve (realpath) inside the category
+ * root, so symlinks pointing at files outside the tree are rejected instead of
+ * silently copying external content into the repo.
  */
 export async function collectCandidatesFromPath(
   absPath: string,
   categoryId: string,
   targetRoot: string
 ): Promise<FileCandidateInput[]> {
-  await fs.stat(absPath);
+  const stat = await fs.stat(absPath);
   const expandedRoot = expandHome(targetRoot);
 
-  const toCandidate = (absFile: string): FileCandidateInput => {
-    const rel = path.relative(expandedRoot, absFile);
+  let realRoot = path.resolve(expandedRoot);
+  try {
+    realRoot = await fs.realpath(realRoot);
+  } catch {
+    // Root may not exist yet for custom categories; fall back to lexical path.
+  }
+
+  const assertContained = async (absFile: string): Promise<void> => {
+    let realFile = path.resolve(absFile);
+    try {
+      realFile = await fs.realpath(realFile);
+    } catch {
+      // Broken/unreadable link: keep the lexical fallback below.
+    }
+    if (realFile !== realRoot && !realFile.startsWith(realRoot + path.sep)) {
+      throw new CLIError(
+        `${absFile} resolves outside the '${categoryId}' category root (${expandedRoot})`,
+        `Symlinks pointing outside the category root are not tracked. Drop -c/--category to auto-detect, or pick a category whose root contains the real path.`
+      );
+    }
+  };
+
+  const toCandidate = async (absFile: string): Promise<FileCandidateInput> => {
+    await assertContained(absFile);
+    const rel = path.relative(path.resolve(expandedRoot), absFile);
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
       throw new CLIError(
         `${absFile} is outside the '${categoryId}' category root (${expandedRoot})`,
@@ -352,15 +416,18 @@ export async function collectCandidatesFromPath(
       category: categoryId,
       sourcePath: absFile,
       targetRel: rel,
-      sensitive: isSensitiveRel(rel),
+      sensitive: isSensitiveForCategory(categoryId, rel),
     };
   };
 
-  const stat = await fs.stat(absPath);
-  if (stat.isFile()) return [toCandidate(absPath)];
+  if (stat.isFile()) return [await toCandidate(absPath)];
 
-  const all = await listFilesRecursive(absPath);
-  return all
-    .filter(rel => !rel.split(/[\\/]/).some(p => SKIP_DIR_NAMES.has(p.toLowerCase())))
-    .map(rel => toCandidate(path.join(absPath, rel)));
+  // listFilesRecursive already skips symlinked entries and we prune excluded
+  // directories during traversal instead of filtering afterwards.
+  const rels = await listFilesRecursive(absPath, name => SKIP_DIR_NAMES.has(name.toLowerCase()));
+  const candidates: FileCandidateInput[] = [];
+  for (const rel of rels) {
+    candidates.push(await toCandidate(path.join(absPath, rel)));
+  }
+  return candidates;
 }

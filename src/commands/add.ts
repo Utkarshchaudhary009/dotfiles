@@ -4,7 +4,7 @@ import { requireAgenvRepo } from '../config';
 import { loadManifest, saveManifest, withManifestLock, Manifest, TrackedFile } from '../manifest';
 import { log } from '../logger';
 import { pathExists } from '../fs';
-import { expandHome } from '../platform';
+import { expandHome, isWindows } from '../platform';
 import { ToolCategoryId, ALL_CATEGORIES } from '../types';
 import { scanSystem } from '../scanner';
 import {
@@ -56,14 +56,20 @@ function resolveCategory(
   }
 
   // Longest matching category targetRoot wins.
+  // Case-insensitive only where the filesystem itself is (Windows); comparing
+  // case-insensitively on Linux would match categories whose real paths differ
+  // in case and then blow up when computing the relative target path.
+  const norm = (s: string) => (isWindows() ? s.toLowerCase() : s);
   let best: { id: ToolCategoryId; targetRoot: string } | null = null;
   let bestLen = 0;
   for (const cat of manifestCategories) {
     const tr = expandHome(cat.targetRoot);
-    if (absPath.toLowerCase().startsWith(tr.toLowerCase()) && tr.length > bestLen) {
-      best = { id: cat.id as ToolCategoryId, targetRoot: cat.targetRoot };
-      bestLen = tr.length;
-    }
+    if (!norm(absPath).startsWith(norm(tr)) || tr.length <= bestLen) continue;
+    // Prefix must end at a path boundary: ~/foo-bar must not match root ~/foo.
+    const rest = absPath.slice(tr.length);
+    if (rest.length > 0 && !rest.startsWith('/') && !rest.startsWith('\\')) continue;
+    best = { id: cat.id as ToolCategoryId, targetRoot: cat.targetRoot };
+    bestLen = tr.length;
   }
   if (best) return { categoryId: best.id, targetRoot: best.targetRoot };
   return { categoryId: 'custom', targetRoot: '~/' };
