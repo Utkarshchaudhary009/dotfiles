@@ -23,7 +23,9 @@ export function expandHome(p: string): string {
 
 function isInside(parent: string, child: string): boolean {
   const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  if (rel === '') return true;
+  // Reject only a literal '..' component; names like '..config' are valid files.
+  return rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel);
 }
 
 export function targetPathFor(targetRoot: string, rel: string): string {
@@ -39,12 +41,12 @@ export function targetPathFor(targetRoot: string, rel: string): string {
     throw new Error(`Unsafe targetRoot: ${targetRoot} is outside user home directory`);
   }
 
-  // Treat backslashes as separators on every platform so `..\bar` cannot
-  // smuggle a traversal past the containment check on POSIX systems.
-  const normalizedRel = rel.replace(/\\/g, '/');
-  const targetPath = path.resolve(expandedRoot, normalizedRel);
-  if (!isInside(expandedRoot, targetPath)) {
+  // Validate a backslash-normalized copy so `..\\bar` cannot smuggle a
+  // traversal past containment on POSIX, but resolve the returned path from
+  // the original rel — on POSIX a `\` can be part of a legitimate filename.
+  const probe = path.resolve(expandedRoot, rel.replace(/\\/g, '/'));
+  if (!isInside(expandedRoot, probe)) {
     throw new Error(`Unsafe target path in manifest: ${rel}`);
   }
-  return targetPath;
+  return path.resolve(expandedRoot, rel);
 }
