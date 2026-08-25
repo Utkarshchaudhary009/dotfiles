@@ -4,6 +4,7 @@ import { TrackedFile, Manifest, repoStorePath } from './manifest';
 import { targetPathFor, expandHome } from './platform';
 import { log } from './logger';
 import { runProcess } from './proc';
+import { CLIError, DEFAULT_KEY_PATH, HINTS } from './errors';
 
 function runCmd(cmd: string, args: string[]): Promise<void> {
   return runProcess([cmd, ...args]).then(({ code, stderr }) => {
@@ -47,6 +48,13 @@ export interface DeploySummary {
 
 export async function captureFiles(rootDir: string, manifest: Manifest, filesToCapture: { src: string, tf: TrackedFile }[]): Promise<void> {
   const keyPath = expandHome(manifest.config.encryption.keyPath);
+  const needsKey = filesToCapture.some(item => item.tf.encrypt);
+  if (needsKey && !(await pathExists(keyPath))) {
+    throw new CLIError(
+      `Encryption key not found at ${keyPath}`,
+      HINTS.keyMissing(keyPath === expandHome(DEFAULT_KEY_PATH) ? undefined : keyPath)
+    );
+  }
   for (const item of filesToCapture) {
     const dest = repoStorePath(rootDir, item.tf);
     await ensureParent(dest);
@@ -58,12 +66,23 @@ export async function captureFiles(rootDir: string, manifest: Manifest, filesToC
   }
 }
 
-export async function deployFiles(rootDir: string, manifest: Manifest, opts?: {dryRun?: boolean, force?: boolean}): Promise<DeploySummary> {
+export interface DeployOptions {
+  dryRun?: boolean;
+  force?: boolean;
+  /** Only consider these tracked files; everything else counts as skipped. */
+  filter?: (tf: TrackedFile) => boolean;
+}
+
+export async function deployFiles(rootDir: string, manifest: Manifest, opts?: DeployOptions): Promise<DeploySummary> {
   const summary: DeploySummary = { deployed: 0, skipped: 0, unchanged: 0, failed: 0, encryptedSkipped: 0, backups: 0 };
   const keyPath = expandHome(manifest.config.encryption.keyPath);
   const hasKey = await pathExists(keyPath);
 
   for (const tf of manifest.files) {
+    if (opts?.filter && !opts.filter(tf)) {
+      summary.skipped++;
+      continue;
+    }
     const cat = manifest.config.categories.find(c => c.id === tf.category);
     if (!cat) continue;
     const targetRoot = cat.targetRoot;
