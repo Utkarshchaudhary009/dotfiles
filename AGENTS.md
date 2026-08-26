@@ -1,91 +1,257 @@
-# AGENTS.md — dotfiles (agenv)
+# AGENTS.md — `dotfiles` / `agenv`
 
-## What This Is
+## Mission
 
-`agenv` — a portable, encrypted AI developer environment manager, shipped as an npm CLI from this repo. It scans your machine for dev/AI configs (OpenCode, Claude, Git, VSCode, shell), packs them into a Git-backed repo (`files/<category>/` + `agenv.json` manifest), encrypts secrets with `age` (X25519), publishes to GitHub, and deploys anywhere with two commands: `agenv clone` → `agenv expand`.
+`agenv` is a portable, encrypted developer-environment manager. It discovers useful development and AI configuration, stores a canonical copy in the environment repository, protects sensitive data with `age`, and makes that environment restorable and synchronizable across machines.
 
-## Principles
+The product goal is simple:
 
-- **Simplest solution wins.** If it takes a paragraph to explain, redesign it.
-- **Encryption first.** Anything touching keys, tokens, or credentials must prompt for `age` encryption.
-- **No hidden state.** All repository state lives in the `agenv.json` manifest — no sidecar files, no symlink spaghetti.
-- **Never edit outside the repo.** Canonical copies stay in `files/`; `$HOME` receives them at `expand` time.
+> **The system absorbs complexity so the user can express intent, understand the current state, and know the next action.**
 
-## UX & UI Philosophy
+This file is the operating contract for agents working on the repository. Product behavior, CLI design, implementation, tests, documentation, and Git workflow should all reinforce the same model.
 
-The product should minimize cognitive load without minimizing capability. Complexity belongs in the implementation, not in the user's mental model.
+## Source of Truth
 
-- **Intent over mechanism.** Users express what they want; agenv determines how to accomplish it. Avoid exposing internal Git, scan, capture, deploy, or reconciliation steps when they can be handled automatically.
-- **Automation by default.** Safely infer and perform everything possible. Ask only when a meaningful decision cannot be made safely or when an operation could discard user state.
-- **State-driven interaction.** Understand the current relationship between the local machine, the agenv environment, and the remote repository before acting. Commands should move the environment from one state to another rather than require users to understand internal workflows.
-- **Convention over novelty.** Use familiar CLI conventions: concise output, predictable commands, standard exit codes, correct stdout/stderr semantics, and deterministic machine-readable output.
-- **Progressive disclosure.** Keep the common path small and obvious. Preserve advanced capabilities, but expose them only when they are relevant or explicitly requested.
-- **Guidance over information density.** Explain what happened and what matters. Do not dump internal operations or noisy progress that does not help the user decide what to do.
-- **Actionability.** When action is required, provide one clear recommended next step with the exact command to run. Prefer a single obvious action over a menu of possibilities.
-- **Predictability.** Similar states should produce similar behavior and output. Avoid surprising side effects and implicit changes that users cannot reason about.
-- **Safety over automation.** Never silently overwrite, delete, or discard meaningful local or remote state. Conflicts and destructive ambiguity require explicit resolution.
-- **Minimal intervention.** Do not ask questions that the system can safely answer itself. Every prompt should represent a genuine decision or missing information.
-- **Recoverability.** Errors are recoverable states, not dead ends. Explain the problem, give the relevant fix, and provide the next command whenever possible.
-- **Continuity.** Every workflow should naturally lead to its next state. A user or agent should never need to wonder what to do next or reconstruct the workflow from documentation.
-- **Human-first, agent-native.** Human output is concise and conventional. The same underlying state and recommended actions must be available through deterministic structured output for agents and automation.
-- **Cognitive minimalism.** Minimize the concepts, decisions, commands, and context the user must hold in their head — not the capabilities of the system.
+For non-trivial work, `docs/plan.md` is the execution plan and progress record.
 
-**Core UX rule:** **Automate the work. Explain the state. Suggest the next action.**
+A task that changes behavior, architecture, security, UX, CLI surface, or spans multiple files should begin by updating or creating the relevant plan section before implementation. The plan should state:
 
-## Stack
+- goal and user problem
+- current phase and bounded scope
+- implementation tasks
+- deliverable
+- verification criteria
+- known constraints or blockers
 
-TypeScript 5 (strict, ESM) · Bun ≥1.0 (dev runtime, bundler, test runner) · build targets Node ≥18 (`dist/agenv.js`) · commander (CLI) · @clack/prompts (interactive UI) · chalk · `age` binary (external encryption dep)
+Plan items are evidence-backed: never mark work complete until the required verification has actually run and passed. If verification is blocked, leave it incomplete and record why.
 
-## Layout
+Small, local fixes can skip a plan when the change is obvious and self-contained.
 
+## Product & UX Principles
+
+Complexity belongs in the implementation, not in the user's mental model.
+
+- **Intent over mechanism:** users express what they want; `agenv` chooses the safe mechanics.
+- **Automation by default:** infer and perform everything that can be decided safely; ask only for genuine user decisions.
+- **State-driven:** understand the relationship between the machine, environment, and remote before acting.
+- **Convention over novelty:** prefer familiar CLI behavior, concise output, deterministic exit codes, and stable machine-readable output.
+- **Progressive disclosure:** keep the common path small; advanced controls should appear only when needed.
+- **Guidance and actionability:** explain the resulting state and, when action is required, show the single best next command.
+- **Predictability:** similar states should behave similarly; avoid hidden or surprising side effects.
+- **Safety over automation:** never silently destroy, overwrite, or discard meaningful user state.
+- **Minimal intervention:** do not ask questions the system can answer safely itself.
+- **Recoverability:** errors should explain the problem and provide an actionable recovery path.
+- **Continuity:** each operation should naturally lead to the next state; the user or agent should not need to reconstruct the workflow.
+- **Human-first, agent-native:** human output stays conventional and readable; the same state and recommended actions must be available as structured output.
+
+**Core rule:** **Automate the work. Explain the state. Suggest the next action.**
+
+### CLI design constraints
+
+Prefer commands that express user intent over internal implementation stages. Do not add a top-level command merely because a new internal function exists. Before adding a command, ask whether the behavior can be composed into an existing intent-oriented command such as initialization, synchronization, status, restore, capture, or environment management.
+
+The default path should be obvious to a new user and executable by an agent with minimal context. Internal Git, scanning, capture, deployment, reconciliation, encryption, and registry mechanics should stay behind that abstraction whenever safe.
+
+Human output should normally answer:
+
+```text
+What happened?
+What matters?
+What should I do next?
 ```
+
+When there is no action, say so explicitly. When there is an action, prefer one exact command over a list of possibilities.
+
+Errors should identify the subsystem, explain the safe failure, avoid secrets, and provide the next recovery command when one exists.
+
+## System Model & Invariants
+
+The system has four important layers:
+
+1. **Machine state** — the user's actual configuration files and installed tools.
+2. **Environment state** — `agenv.json` plus canonical files under `files/`.
+3. **Remote state** — the Git repository used for durable transport and synchronization.
+4. **Local registry state** — optional convenience for naming and selecting environments from anywhere.
+
+Treat `agenv.json` as the manifest of environment state. Do not introduce hidden sidecar state when the manifest can represent the information cleanly.
+
+Canonical environment copies belong in the repository. Expansion restores those copies into the user's machine; it must never redefine the repository's canonical source of truth.
+
+### Security invariants
+
+- The age private key lives only at `~/.config/agenv/key.txt` and must never be committed, logged, displayed, or copied into an environment repository.
+- Sensitive files must be encrypted before publication. Plaintext exceptions must be explicit and narrowly scoped.
+- Never print decrypted secrets or credential material to the terminal, logs, tests, PRs, or agent transcripts.
+- `.age` files are encrypted payloads; do not treat them as plaintext configuration.
+- Validate target-relative paths before filesystem writes and reject traversal, unsafe links, and destination collisions.
+- Tests must be hermetic: use temporary directories and test keys, never real user configuration or credentials.
+
+## Architecture Rules
+
+Keep boundaries explicit and reuse existing abstractions before adding new ones.
+
+- `src/commands/` contains CLI orchestration; reusable behavior belongs in shared modules.
+- Keep filesystem, Git, process execution, encryption, path validation, registry, manifest, logging, and error behavior behind their existing modules.
+- Prefer one source of truth for each concept. Do not duplicate state or policy across commands.
+- A feature should solve the actual user problem without speculating about future phases.
+- Preserve platform behavior across Windows, Linux, and macOS where the project supports it.
+- Prefer deterministic, testable functions over command handlers that contain large amounts of business logic.
+
+## Development Lifecycle
+
+Use this loop for every meaningful change:
+
+**Plan → Inspect → Implement → Verify → Review → Sync → Commit/PR**
+
+### 1. Plan
+
+Define the smallest useful change and its completion criteria. For multi-step work, update `docs/plan.md` before coding. Do not silently expand scope while implementing.
+
+### 2. Inspect
+
+Read the plan and the smallest relevant set of files before editing. Search for existing patterns, related tests, current command behavior, and current documentation. Prefer extending an existing abstraction over creating a parallel one.
+
+### 3. Implement
+
+Work only within the active scope. Make the smallest coherent change that satisfies the plan. Do not implement future phases, speculative abstractions, or unrelated cleanup in the same change.
+
+When changing behavior, update the tests and affected documentation as part of the same work rather than leaving synchronization to memory.
+
+### 4. Verify
+
+Verification is part of implementation, not a final ceremony. Choose evidence proportional to risk.
+
+Minimum gates before commit:
+
+- typecheck passes
+- relevant tests pass
+- full test suite passes when practical
+- build succeeds when build output is affected
+- CLI smoke checks pass when CLI behavior is affected
+- security-sensitive changes receive focused regression tests
+- real end-to-end verification is required for behavior that depends on Git remotes, networking, encryption, subprocesses, or cross-process coordination when such verification is part of the plan
+
+A test or checklist item is not complete because the code looks correct. It is complete because the required evidence exists.
+
+If a verification step cannot run, do not claim success. Record the blocker and keep the associated completion item unresolved.
+
+### 5. Review
+
+Before opening or merging a PR, review the actual diff as a second pass.
+
+Look for, in order:
+
+1. correctness and unintended behavior
+2. security and data-loss risk
+3. broken invariants or architectural duplication
+4. missing tests or weak verification
+5. UX/CLI regressions and unclear next actions
+6. stale documentation or plan state
+
+Use an independent review pass or review agent when practical, especially for behavioral, security, synchronization, or CLI changes. Fix findings before merge rather than treating review as documentation.
+
+### 6. Sync
+
+After verification and review, synchronize the plan, tests, documentation, and implementation so they describe the same reality. Never mark a plan item complete merely because implementation exists.
+
+### 7. Commit / PR
+
+Keep commits coherent and traceable to one concern or phase. Do not mix unrelated refactors with behavioral work.
+
+Commit subjects use the existing repository convention: concise, imperative, conventional prefix, with scope and consequence where useful.
+
+PRs should describe:
+
+- what user or system problem changes
+- why the change is needed now
+- the behavioral or architectural change
+- verification actually performed
+- known limitations or blocked checks
+- explicit out-of-scope follow-ups when relevant
+
+PR detail should scale with risk, not with the number of files changed.
+
+## Review & Merge Discipline
+
+The main branch should remain releasable.
+
+- Do not merge with a red required gate.
+- Re-run relevant verification after review fixes and conflict resolution.
+- For stacked work, fix a problem in the lowest branch that owns it, then rebase dependent branches and re-run affected gates.
+- When review feedback reveals a deeper issue, fix the owning layer rather than adding a compensating workaround elsewhere.
+- Treat bot review findings as ordinary engineering feedback: validate them, fix genuine issues, and verify the result.
+
+## Testing Philosophy
+
+Tests should protect behavior and invariants, not implementation trivia.
+
+Prefer:
+
+- unit tests for deterministic logic and edge cases
+- integration tests for module boundaries
+- CLI tests for user-visible behavior, exit codes, and structured output
+- real end-to-end tests for system behavior that mocks cannot prove
+- regression tests for every discovered security, synchronization, or data-loss bug
+
+New behavior is incomplete until the test strategy is clear and the relevant evidence exists.
+
+## Documentation Discipline
+
+Documentation is part of the product contract.
+
+When behavior, commands, flags, security rules, architecture, or workflows change, update the affected docs in the same change. Keep the CLI reference, skill instructions, plan, README, and implementation aligned.
+
+Do not preserve stale documentation merely because it describes an older interface. The implementation, plan, and user-facing docs should converge on one current reality.
+
+## Scope & YAGNI
+
+Optimize for the smallest complete solution, not the smallest diff.
+
+Do not add abstractions, commands, configuration, dependencies, or future-facing interfaces without a present requirement. When a simpler existing mechanism solves the problem, use it.
+
+A useful question before adding anything:
+
+> **Does this reduce user or system complexity today, or does it only prepare for a hypothetical future?**
+
+## Repository Map
+
+```text
 src/
-  cli.ts                # commander entry — registers every subcommand
-  commands/             # one file per subcommand (init, clone, expand, publish, …)
-  scanner.ts            # discovers trackable configs by category
-  manifest.ts           # agenv.json schema, load/save
-  deploy.ts             # expands files/ → $HOME
-  registry.ts           # global multi-environment registry (bind/use/envs)
-  resolve.ts            # target resolution: name | path | git URL
-  git.ts proc.ts        # git + subprocess wrappers
-  deps.ts               # dependency checks (git, gh, age)
-  platform.ts fs.ts logger.ts errors.ts config.ts types.ts
-tests/                  # bun test suites — hermetic, temp dirs only
-scripts/fix-shebang.mjs # post-build shebang patch for dist/
-docs/                   # CLI.md, SETUP-GUIDE.md, ENVIRONMENTS.md, RELEASING.md
+  cli.ts                CLI entry and command registration
+  commands/             command orchestration
+  scanner.ts            configuration discovery
+  manifest.ts           environment manifest and persistence
+  deploy.ts             capture/deploy/encryption plumbing
+  registry.ts           local environment registry
+  resolve.ts            target resolution
+  git.ts / proc.ts      Git and subprocess boundaries
+  deps.ts               dependency checks
+  platform.ts / fs.ts   cross-platform filesystem helpers
+  logger.ts / errors.ts user-facing output and actionable errors
+  config.ts / types.ts  configuration and shared types
+
+tests/                  hermetic test suites
+docs/                    user/developer documentation and plans
+skills/                 agent-facing operational instructions
+.github/workflows/      CI, release, and documentation automation
 ```
 
-## Security Invariants
+## Tooling
 
-- The age private key lives only at `~/.config/agenv/key.txt` — never copy it into the repo, tests, or logs.
-- Files ending in `.age` are encrypted and safe to publish; treat everything else as public.
-- `.gitignore` blocks keys and credentials (`key.txt`, `*.age`, `.credentials.json`) — keep it that way.
-- Tests are hermetic: temp directories only, never real user configs or keys.
-
-## Conventions
-
-- Strict TS; avoid `any` — use `unknown` and narrow.
-- New subcommand ⇒ one new file in `src/commands/`, registered in `src/cli.ts`.
-- Errors come from `src/errors.ts`; user-facing output goes through `src/logger.ts` and clack prompts.
-- One concern per commit.
-- **Commit subjects:** conventional prefix, imperative mood, ≤72 chars, scope + consequence (`fix(expand): resolve symlinked targets to avoid clobbering real files`) — not what was edited.
-- **Commit bodies:** one paragraph — cause → fix mechanism → scope/test delta.
-- **PRs:** length scales with risk, never effort. Mechanical change → one line; behavioral change → reasoning plus a why-now note. State what breaks and who hits it, not which files were touched. Exactly one author voice — no stacked bot summaries.
-
-## Commands
-
-```powershell
-bun install                       # dependencies
-bun run build                     # bundle → dist/agenv.js (+ shebang fix)
-bun run typecheck                 # tsc --noEmit
-bun test                          # full suite
-bun test tests/manifest.test.ts   # single file
-bun ./src/cli.ts --help           # run the CLI from source
+```bash
+bun install
+bun run typecheck
+bun test
+bun run build
+bun ./src/cli.ts --help
+bun ./src/cli.ts --version
+bun ./src/cli.ts doctor
 ```
 
-## Workflow
+Use the smallest relevant command during iteration, then run the full required gates before committing. Never bypass a failing gate by weakening the check without explicitly fixing the underlying problem.
 
-1. Read the files the task needs; architecture rules live in `docs/CONTRIBUTING.md`.
-2. Implement the smallest change that solves it.
-3. **Gates:** typecheck and tests green before any commit.
-4. Commit (conventional style) and open a PR.
+## Completion Rule
+
+A task is done only when the implementation, tests, documentation, plan state, and verification evidence agree.
+
+**Code is not complete when it exists. It is complete when the intended behavior is verified, reviewed, documented, and ready to ship.**
