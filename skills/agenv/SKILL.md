@@ -15,7 +15,7 @@ description: Use when the user wants to backup their environment, manage dotfile
 
 ## How to Run / Handle Agent Context
 - **Installed:** `agenv <cmd>`
-- **In Development Repo (`C:\Users\acerr\Documents\antigravity\dotfiles\`):** `bun src/cli.ts <cmd>` (Requires Bun. Fallback is `node dist/agenv.js <cmd>` after `bun run build`).
+- **In Development Repo (agenv source checkout):** `bun src/cli.ts <cmd>` (Requires Bun. Fallback is `node dist/agenv.js <cmd>` after `bun run build`).
 - **RULES FOR AGENTS:** Always prefer non-interactive flags (e.g., `--yes` for init, `--remote <url> --yes` for publish, `--no-push` or `--push` for sync) so you do not block on interactive prompts. Capture stdout/stderr to read the CLI's output.
 
 ## Setup Wizard (Init)
@@ -26,6 +26,7 @@ description: Use when the user wants to backup their environment, manage dotfile
 ## Managing Tracked Files
 - **Add:** `agenv add <file> [--encrypt] [-c <category>] [--allow-plaintext-secrets]` (Auto-registers custom categories. Assigns a default category per file type). `<file>` can be an absolute path or use `~`.
 - **Remove:** `agenv remove <file|id> [--no-delete]`
+- **Scan:** `agenv scan` — Read-only discovery of system config files grouped by category (opencode, claude, agents, git, vscode, shell). Makes no changes.
 - **SECURITY RULE:** ALWAYS use `--encrypt` for files containing secrets, tokens, credentials, or API keys (e.g., auth JSON, `.credentials`, accounts, keys). Sensitivity detection is mostly handled automatically at init, but manual additions by the agent must enforce this.
 
 ## Deploy / Sync Commands

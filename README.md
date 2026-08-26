@@ -124,7 +124,7 @@ Found 12 matching files across 4 categories.
 | Command | Description | Options |
 |---------|-------------|---------|
 | `agenv init` | Interactive setup: scan system, select files, set encryption key, create repo | `--dir <path>`, `--yes`, `--allow-plaintext-secrets`, `--force`, `--publish`, `--no-publish` |
-| `agenv publish` | Publish environment to GitHub (creates repo, commits, pushes) | `--public`, `--name <name>`, `--remote <url>`, `--attach`, `--new`, `--yes`, `--dir <path>` |
+| `agenv publish` | Publish environment to GitHub (creates repo, commits, pushes) | `--public`, `--name <repoName>`, `--remote <url>`, `--attach`, `--new`, `--yes`, `--dir <path>` |
 | `agenv clone` | Initialize a machine with an existing pack (auto-expands and decrypts) | `<url>`, `--dir <path>` |
 | `agenv add` | Add a file to the pack | `<file>`, `--encrypt`, `-c <category>`, `--allow-plaintext-secrets` |
 | `agenv remove` | Remove a file from the pack | `<file\|id>`, `--no-delete` |
