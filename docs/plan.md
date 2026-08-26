@@ -1,304 +1,236 @@
 # agenv — Implementation Plan
 
-> **Status:** Planning and hardening in progress.
+> **Status:** Active development.
 >
-> **Source of truth:** This file is the authoritative implementation plan for `agenv`. Code, chat history, issues, TODOs, and agent memory must not silently override it.
+> **Source of truth:** This file is the implementation roadmap for non-trivial work. Code, chat history, TODOs, and agent memory must not silently override it.
 
-## Project Goal
+## Product Goal
 
-Build `agenv` into a dependable, portable developer-environment manager that can capture selected machine configuration, protect sensitive material, publish an environment repository, and restore/synchronize that environment on another machine with minimal user effort.
+Build `agenv` into a dependable, portable developer-environment manager that makes a user's configuration available across machines with minimal cognitive effort.
 
-The product should make this flow predictable:
+The system should handle discovery, capture, encryption, Git, restoration, synchronization, conflict detection, and verification **under the hood**. The user should primarily express intent, understand the resulting state, and follow the next action when one is required.
 
-```text
-Discover local configuration
-        ↓
-Select what belongs in the environment
-        ↓
-Capture into canonical repository state
-        ↓
-Encrypt sensitive material
-        ↓
-Publish / synchronize through Git
-        ↓
-Clone / restore on another machine
-        ↓
-Verify the machine is in the intended state
-```
+## Product Principles
 
-The current repository already contains the main CLI surface, manifest model, encryption flow, deployment flow, registry, export/import support, tests, documentation, and CI. The plan below focuses on making those capabilities coherent, secure, well verified, and maintainable rather than inventing a second product around them.
-
-## Core Principles
-
-1. **Manifest first.** `agenv.json` is the canonical description of managed environment state.
-2. **Canonical repository state.** Files under `files/` are the repository-side source of truth; machine paths are deployment targets, not a second source of truth.
-3. **Secure by default.** Secrets must be encrypted before publication unless an explicit, narrowly scoped plaintext exception is requested.
-4. **Intent-oriented CLI.** Commands should represent user goals, not internal implementation steps.
-5. **Smallest complete change.** Solve the current problem without speculative architecture or unrelated cleanup.
-6. **Cross-platform by design.** Preserve supported behavior across Windows, Linux, and macOS.
-7. **Evidence over optimism.** A task is complete only when its stated verification has actually passed.
-8. **Documentation is part of the implementation.** Behavior, tests, documentation, and the plan must converge on the same reality.
+1. **Intent over mechanism.** Users express what they want; `agenv` determines how to accomplish it.
+2. **Automation by default.** Safely infer and perform as much work as possible without unnecessary questions.
+3. **State-driven behavior.** Understand local, repository, and environment state before deciding what to do.
+4. **Safety over automation.** Never silently destroy, overwrite, expose, or discard meaningful user state.
+5. **Canonical state.** `agenv.json` and repository files are the canonical environment representation; local registry metadata is convenience state only.
+6. **Conventional CLI.** Keep commands predictable, concise, scriptable, and familiar.
+7. **Action-driven output.** Explain what happened and, when action is required, give the exact recommended next command.
+8. **Human-first, agent-native.** Human output stays readable; the same state must be available through stable structured output for agents and automation.
+9. **Evidence over optimism.** Work is complete only when its verification has actually passed.
+10. **Smallest complete change.** Prefer the simplest complete solution and avoid speculative architecture.
 
 ## Progress Rules
 
-Use GitHub-style checkboxes as the only progress tracker inside this plan.
+Use GitHub-style checkboxes as the only progress tracker in this file.
 
-- `[ ]` = not complete
-- `[x]` = complete and verified
+- `[ ]` = incomplete or not verified
+- `[x]` = implemented and verified
 
-A checkbox may be marked `[x]` only after its verification evidence exists.
+Never mark work complete merely because code exists. Verification evidence must exist first.
 
-A phase is complete only when all of its tasks and all of its verification checks are complete.
-
-Do not silently reorder phases. If architecture or scope must change, amend this file first and explain the change in the resulting commit or PR.
-
-## Current Repository Baseline
-
-The repository currently exposes a broad environment-management CLI including initialization, scanning, add/remove, publish/clone, expansion, update/push/sync, status/list, registry management, export/import, diagnostics, and self-update. The public documentation describes these capabilities and the package is a TypeScript/Bun CLI with `typecheck`, `test`, `build`, and coverage scripts. citeturn80file0turn74file0
-
-The test suite already contains command, deployment, manifest, registry, scan, security, sync, export/import, and unit-level coverage. citeturn76file0
-
-The existing contribution contract also establishes strict typing, Bun-based tests, hermetic temporary directories, encryption-first handling of sensitive files, repository-local canonical state, and manifest-driven state. citeturn77file0
-
-These facts describe the current baseline; they are not automatically completion claims for the phases below until the required gates are run.
+Phases are ordered. If scope or architecture changes, update this plan before or with the implementation change.
 
 ---
 
-# Phase 1 — Repository Baseline & Development Contract
+# Phase 1 — Capture Engine
 
-**Goal:** Establish a verified baseline so future changes are made against one clear architecture and one trustworthy development workflow.
+**Goal:** Make discovery and disk-to-repository capture safe, predictable, and reusable by higher-level workflows.
 
 ### Tasks
 
-- [ ] Verify the current dependency/toolchain requirements and document the exact supported Bun/Node versions.
-- [ ] Verify the repository's `typecheck`, test, build, and packaging commands from a clean install.
-- [ ] Audit `src/commands/` and shared modules to ensure command handlers remain orchestration layers rather than duplicate business logic.
-- [ ] Confirm the manifest, filesystem, Git, process, encryption, registry, logging, and error boundaries are the intended reusable boundaries.
-- [ ] Identify any existing documentation or command behavior that contradicts the current implementation.
-- [ ] Keep this plan as the only roadmap/progress tracker for non-trivial implementation work.
-
-### Deliverable
-
-A verified baseline with one development contract and no known documentation/implementation contradiction left unrecorded.
+- [x] Introduce shared capture/diff logic for tracked files.
+- [x] Support explicit file, directory, and category capture.
+- [x] Support recapturing drifted tracked files.
+- [x] Detect unchanged, repository-missing, target-missing, locked, and conflicting states.
+- [x] Add safe handling for collisions, unsafe symlinks, and sensitive files.
+- [x] Provide actionable errors for missing encryption tooling, keys, authentication, and paths.
+- [x] Add regression coverage for capture and add workflows.
 
 ### Verification
 
-- [ ] `bun install --frozen-lockfile` succeeds.
-- [ ] `bun run typecheck` succeeds.
-- [ ] `bun test` succeeds.
-- [ ] `bun run build` succeeds.
-- [ ] `npm pack --dry-run` succeeds and contains the intended package output.
-- [ ] CLI smoke checks for `--help`, `--version`, and `doctor` behave as documented.
+- [x] Typecheck passes.
+- [x] Full test suite passes on the implementing branch.
+- [x] Capture does not silently overwrite local changes.
+- [x] Sensitive captures are encrypted according to policy.
 
 ---
 
-# Phase 2 — Capture, Manifest & Canonical State
+# Phase 2 — Scan & Status
 
-**Goal:** Make configuration capture predictable and ensure `agenv.json` plus `files/` remain the single coherent representation of an environment.
+**Goal:** Turn environment discovery and state inspection into reliable foundations for automatic workflows.
 
 ### Tasks
 
-- [ ] Audit scan results, category assignment, explicit `add`, and manifest persistence for consistent semantics.
-- [ ] Make add/remove operations idempotent where safe.
-- [ ] Ensure the manifest cannot silently describe stale or missing repository files after mutations.
-- [ ] Ensure custom categories and platform-specific paths are normalized consistently.
-- [ ] Add regression tests for duplicate additions, removals, missing sources, and manifest/repository mismatches.
-- [ ] Keep machine-local state separate from canonical repository state.
-
-### Deliverable
-
-A captured environment has one unambiguous repository representation and can be inspected with `status`/`list` without reconstructing hidden state.
+- [ ] Make scanning read-only and deterministic.
+- [ ] Make scanner results reusable by capture and synchronization workflows.
+- [ ] Add safe `scan --apply` behavior where appropriate.
+- [ ] Redesign `status` around a concise summary-first view.
+- [ ] Report actionable local, remote, missing, locked, and conflict states.
+- [ ] Ensure status never requires users to understand internal Git/filesystem terminology.
 
 ### Verification
 
-- [ ] Discovery is read-only.
-- [ ] Adding a file updates both repository storage and the manifest consistently.
-- [ ] Removing a tracked file updates the manifest and repository according to its deletion mode.
-- [ ] Duplicate or repeated operations do not corrupt state.
-- [ ] `status` accurately reports modified, missing, and synchronized targets.
-- [ ] Relevant manifest and command tests pass.
+- [ ] Repeated scans produce stable results for the same machine state.
+- [ ] Applying scan results is idempotent where safe.
+- [ ] Status correctly identifies every supported actionable state.
+- [ ] Status tests cover success, drift, missing files, and conflicts.
 
 ---
 
-# Phase 3 — Encryption, Restore & Filesystem Safety
+# Phase 3 — Sync Reconciliation
 
-**Goal:** Make the capture and restore boundary safe against credential leakage, path traversal, accidental overwrites, and ambiguous filesystem state.
+**Goal:** Make synchronization an intelligent state transition rather than a sequence of user-managed Git operations.
 
 ### Tasks
 
-- [ ] Audit every path from plaintext secret discovery through encryption, storage, restore, logging, and testing.
-- [ ] Ensure private encryption keys never enter repositories, archives, logs, tests, or command output.
-- [ ] Validate target-relative paths before writes and reject traversal, unsafe links, and destination collisions.
-- [ ] Define precise overwrite behavior for `expand`, including dry-run and force paths.
-- [ ] Ensure encrypted files are never accidentally treated as plaintext configuration.
-- [ ] Add regression coverage for malformed paths, collisions, missing keys, decryption failures, and partial restore failures.
-- [ ] Verify export/import preserves encrypted payloads without exposing secrets.
-
-### Deliverable
-
-A malicious or malformed environment cannot escape its intended destination, overwrite unrelated state silently, or leak protected credentials through normal workflows.
+- [ ] Treat local state, canonical repository state, and remote state as one reconciliation model.
+- [ ] Automatically capture safe local changes.
+- [ ] Automatically restore safe remote changes.
+- [ ] Detect divergent changes before destructive operations.
+- [ ] Resolve conflicts explicitly and preserve recoverability.
+- [ ] Make retry behavior safe after Git, encryption, or filesystem failures.
+- [ ] Hide Git choreography from the normal user workflow.
 
 ### Verification
 
-- [ ] Valid encrypted files restore correctly with the expected key.
-- [ ] Missing/invalid keys fail safely without leaking decrypted material.
-- [ ] Path traversal and unsafe destination cases are rejected.
-- [ ] Dry-run produces the intended write set without modifying the destination.
-- [ ] Force mode only overwrites where explicitly requested.
-- [ ] Secret-scan and security tests pass.
-- [ ] Export/import security tests pass.
+- [ ] No-change sync is a no-op.
+- [ ] Local-only changes are captured safely.
+- [ ] Remote-only changes are restored safely.
+- [ ] Non-overlapping changes reconcile automatically.
+- [ ] Conflicting changes are surfaced without silent data loss.
+- [ ] Real Git-backed end-to-end tests cover the major reconciliation paths.
 
 ---
 
-# Phase 4 — Remote Lifecycle & Synchronization
+# Phase 4 — CLI UX Transformation
 
-**Goal:** Make Git-backed publication and multi-machine synchronization reliable and conflict-aware.
+**Goal:** Transform `agenv` from a command collection into a conventional, conversational, agent-centric CLI that keeps most complexity under the hood.
+
+## UX Model
+
+The primary interaction loop is:
+
+```text
+Understand intent
+      ↓
+Inspect current state
+      ↓
+Automatically perform safe work
+      ↓
+Explain the resulting state
+      ↓
+Recommend the next action
+      ↓
+Continue until the desired state is reached
+```
+
+The user should not need to understand the internal sequence of scan → capture → encrypt → Git → restore → verify. `agenv` should own that choreography.
 
 ### Tasks
 
-- [ ] Audit `publish`, `clone`, `update`, `push`, and `sync` as one state transition system rather than unrelated commands.
-- [ ] Define behavior for dirty worktrees, divergent remote state, failed pulls, interrupted deployment, and retry.
-- [ ] Preserve `--ff-only` or equivalent safety where appropriate; never silently discard local or remote changes.
-- [ ] Ensure clone/restore has deterministic post-clone state.
-- [ ] Add integration tests using temporary Git repositories/remotes where practical.
-- [ ] Keep user-facing errors actionable and distinguish authentication, Git, filesystem, and deployment failures.
+- [ ] Audit the command surface and remove, merge, or demote commands that expose internal implementation steps.
+- [ ] Define a small set of primary intent-oriented commands for the common lifecycle.
+- [ ] Make `agenv` with no command act as a state-aware entry point that tells the user what matters and what to do next.
+- [ ] Make common commands automatically perform safe prerequisite and follow-up work.
+- [ ] Standardize output around: **result → relevant detail → next action**.
+- [ ] Use conventional CLI conventions for stdout/stderr, exit codes, help, and quiet/verbose behavior.
+- [ ] Make normal output concise and avoid exposing internal Git, filesystem, encryption, or implementation choreography unless useful.
+- [ ] Make errors actionable: explain the problem, give the reason when useful, and provide the recovery command.
+- [ ] Ask questions only when the system cannot safely infer intent or a destructive/ambiguous choice requires confirmation.
+- [ ] Prefer one recommended next action over a menu of possible commands.
+- [ ] Add progressive disclosure so advanced controls remain available without burdening the common path.
+- [ ] Define a shared state model that powers both human output and agent output.
+- [ ] Add stable structured output for agent/script consumption without making JSON the default human interface.
+- [ ] Ensure every actionable state has a deterministic recommended command.
+- [ ] Ensure successful terminal states explicitly say when nothing more needs to be done.
+- [ ] Update `SKILL.md`, command reference, examples, and help output to reflect the transformed UX.
 
-### Deliverable
+### Design Acceptance Criteria
 
-A user can publish, clone, update, push, and sync environments without needing to understand the underlying Git choreography.
+- [ ] A new user can complete the common lifecycle without reading the full command reference.
+- [ ] A user can run `agenv` and immediately understand the current state and next action.
+- [ ] Common workflows require the fewest reasonable user decisions.
+- [ ] Internal implementation stages are not exposed as required user steps.
+- [ ] Every error with a known recovery path provides that path.
+- [ ] Human and agent interfaces expose the same underlying state model.
+- [ ] Agent workflows can progress by reading the recommended action rather than scraping arbitrary prose.
 
 ### Verification
 
-- [ ] Fresh environment can be published successfully.
-- [ ] Fresh machine can clone and restore a published environment.
-- [ ] Remote changes can be updated and expanded safely.
-- [ ] Local changes can be pushed without losing unrelated work.
-- [ ] Divergence/conflict paths fail explicitly and preserve recoverability.
-- [ ] Relevant integration and synchronization tests pass.
-- [ ] Real Git-backed end-to-end verification is performed for changes that alter remote behavior.
+- [ ] Test every primary user journey from a clean machine/environment.
+- [ ] Test all actionable states and verify their recommended next commands.
+- [ ] Test non-interactive/agent execution paths.
+- [ ] Verify structured output schemas with automated tests.
+- [ ] Verify help, documentation, and implementation agree.
 
 ---
 
-# Phase 5 — Multi-Environment Registry & Target Resolution
+# Phase 5 — Environment & Remote Lifecycle
 
-**Goal:** Make named environments a reliable convenience layer without making registry state another source of truth for repository contents.
+**Goal:** Make publishing, cloning, environment selection, and multi-machine use reliable without exposing their implementation complexity.
 
 ### Tasks
 
-- [ ] Define target resolution precedence for name, local path, Git URL, active environment, and current directory.
-- [ ] Keep registry metadata limited to discovery/selection convenience.
-- [ ] Make bind/unbind/use/envs operations deterministic and safe.
-- [ ] Verify stale registry entries fail cleanly and can be repaired without touching repository contents.
-- [ ] Ensure commands behave consistently whether invoked from inside or outside an environment directory.
-- [ ] Add tests for multiple environments, target ambiguity, stale paths, and active-environment selection.
-
-### Deliverable
-
-Users can manage multiple environments from anywhere without hidden coupling between registry metadata and repository state.
+- [ ] Audit publish and clone as lifecycle operations rather than isolated commands.
+- [ ] Make environment selection deterministic and easy to understand.
+- [ ] Keep registry metadata separate from canonical repository state.
+- [ ] Handle authentication, unavailable remotes, dirty state, and divergent repositories safely.
+- [ ] Ensure a newly cloned environment reaches a clearly defined usable state.
+- [ ] Keep advanced registry and Git controls available without making them part of the common path.
 
 ### Verification
 
-- [ ] Named environments resolve correctly.
-- [ ] Local paths and Git URLs resolve correctly.
-- [ ] Active-environment selection is deterministic.
-- [ ] Stale registry entries do not modify or delete repositories.
-- [ ] All target-taking commands behave consistently.
-- [ ] Registry tests pass.
+- [ ] A new environment can be published successfully.
+- [ ] Another machine can clone and restore it.
+- [ ] Switching environments does not alter unrelated repositories.
+- [ ] Remote failures produce actionable recovery guidance.
+- [ ] Multi-environment tests pass.
 
 ---
 
-# Phase 6 — CLI & AI-Agent UX
+# Phase 6 — Packaging, Security & Reliability
 
-**Goal:** Make the CLI easy for humans and deterministic for AI agents and automation.
-
-### Tasks
-
-- [ ] Audit all commands for a consistent user-intent model.
-- [ ] Standardize success output around: what happened, what matters, and what to do next.
-- [ ] Standardize actionable error messages with subsystem context and one clear recovery path.
-- [ ] Introduce stable machine-readable output where it materially improves automation, without forcing JSON on normal users.
-- [ ] Ensure `--help`, `--version`, diagnostics, and common failure paths are predictable.
-- [ ] Avoid adding new commands merely to expose internal implementation stages.
-- [ ] Update CLI reference and examples whenever command behavior changes.
-
-### Deliverable
-
-A human can use the common path without understanding internals, while an AI agent can drive the same workflows without scraping unstable prose.
-
-### Verification
-
-- [ ] Common workflows are documented and executable from a clean environment.
-- [ ] CLI help matches implementation.
-- [ ] Error cases include actionable recovery guidance.
-- [ ] Structured output, where implemented, has a stable schema and is tested on success and failure paths.
-- [ ] Relevant CLI behavior tests pass.
-
----
-
-# Phase 7 — Packaging, Release & Cross-Platform Reliability
-
-**Goal:** Make the CLI dependable as a distributable product rather than only as a repository checkout.
+**Goal:** Make the resulting CLI dependable as a distributed product.
 
 ### Tasks
 
-- [ ] Verify npm package contents and built entrypoint.
-- [ ] Verify Node compatibility of the built artifact, not just Bun execution.
-- [ ] Verify Windows, Linux, and macOS path/process behavior for supported features.
-- [ ] Ensure release automation gates on typecheck, build, tests, packaging, and secret scanning.
-- [ ] Keep release documentation aligned with actual publishing/install behavior.
-- [ ] Add regression coverage for packaging/shebang/versioning behavior.
-
-### Deliverable
-
-A released `agenv` package can be installed and used consistently across supported platforms.
+- [ ] Verify package contents, entrypoints, versions, and release automation.
+- [ ] Verify supported Bun/Node behavior and platform-specific paths/processes.
+- [ ] Keep encryption keys and plaintext secrets out of repositories, logs, archives, and normal output.
+- [ ] Add regression tests for every discovered security, data-loss, and cross-platform failure.
+- [ ] Verify interrupted operations and retry behavior.
+- [ ] Keep CI gates aligned with typecheck, tests, build, packaging, and security scanning.
+- [ ] Keep documentation, `AGENTS.md`, `SKILL.md`, and this plan synchronized with actual behavior.
 
 ### Verification
 
-- [ ] CI passes from a clean checkout.
-- [ ] Built CLI runs with Node where Node support is promised.
-- [ ] `npm pack --dry-run` contains only intended release files.
-- [ ] Release workflow completes successfully in its intended path.
-- [ ] Cross-platform smoke checks pass where CI coverage exists.
-
----
-
-# Phase 8 — Reliability, Security & Integration Hardening
-
-**Goal:** Turn the existing broad feature set into a dependable foundation for remote development environments and future integrations.
-
-### Tasks
-
-- [ ] Add regression tests for every discovered security, synchronization, data-loss, or cross-platform bug.
-- [ ] Exercise failure/retry behavior around Git, encryption, subprocesses, and interrupted filesystem operations.
-- [ ] Review logging for accidental secrets or misleading success messages.
-- [ ] Review dependency boundaries and remove speculative dependencies/abstractions.
-- [ ] Verify the repository remains consumable by AI coding tools and future web-IDE integrations without coupling the core model to one consumer.
-- [ ] Document integration contracts that are stable enough to be relied upon by external tooling.
-
-### Deliverable
-
-`agenv` is a stable platform primitive that can safely serve disposable or remote development environments without weakening its core security or state model.
-
-### Verification
-
-- [ ] Failure/recovery tests pass.
-- [ ] Security review finds no known credential-leak path in supported workflows.
-- [ ] No known data-loss path remains untested.
-- [ ] Documentation, plan, tests, and implementation describe the same behavior.
-- [ ] Integration smoke tests pass for the supported external tooling paths.
+- [ ] Clean-install typecheck passes.
+- [ ] Full test suite passes.
+- [ ] Build and packaging checks pass.
+- [ ] Security/secret scanning passes.
+- [ ] Supported platform smoke checks pass.
+- [ ] Release workflow is verified end-to-end.
 
 ---
 
 # Definition of Done
 
-`agenv` is considered ready for a major release or architectural milestone only when:
+A phase is complete only when its implementation and verification checkboxes are complete.
 
-- [ ] Every applicable phase task is complete.
-- [ ] Every corresponding verification item is complete.
-- [ ] Typecheck, tests, and build are green.
-- [ ] Security-sensitive behavior has focused regression coverage.
-- [ ] Real integration/end-to-end verification has been performed for behavior that mocks cannot prove.
-- [ ] Documentation and CLI reference match the implementation.
-- [ ] `docs/plan.md` reflects the verified state.
+A major release or architectural milestone is ready only when:
 
-When uncertain, leave the checkbox unchecked and record the missing evidence. An honest `not yet verified` is preferable to an optimistic `done`.
+- [ ] All applicable phases are complete.
+- [ ] Typecheck, tests, build, and packaging gates pass.
+- [ ] Security-sensitive behavior has regression coverage.
+- [ ] Real integration/end-to-end verification has been performed where mocks cannot prove correctness.
+- [ ] Documentation and CLI help match implementation.
+- [ ] Human and agent UX follow the same state model.
+- [ ] This plan reflects the verified state of the repository.
+
+**Core UX rule:**
+
+> **Automate the work. Explain the state. Suggest the next action.**
