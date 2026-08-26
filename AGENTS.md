@@ -1,186 +1,181 @@
-# AGENTS.md — `dotfiles` / `agenv`
+# `dotfiles` / `agenv` — Agent Instructions
 
-## Mission
+## 0 · Golden Rules (read this first)
 
-`agenv` is a portable, encrypted developer-environment manager. It discovers useful development and AI configuration, stores a canonical copy in an environment repository, protects sensitive data with `age`, and restores/synchronizes that environment across machines.
+1. **Plan-as-code:** `docs/plan.md` is the single source of truth. Code follows the plan — the plan never silently follows code.
+2. **Living document, not carved in stone:** the plan can change, but changes happen by editing `docs/plan.md` first. Chat, TODOs, issues, and agent memory do not authorize silent deviations.
+3. **Plan-first integration:** every new feature or integration starts as an amendment to `docs/plan.md` with goal → tasks → deliverable → verification criteria.
+4. **Checkboxes are earned, not assumed:** `[x]` means verification actually ran and passed.
+5. **Ship the smallest viable change:** one phase at a time, with the required gates green before commit.
 
-The product principle is:
+## 1 · How We Work: Structured Vibe Coding
 
-> **Automate the work. Explain the state. Suggest the next action.**
+- `docs/plan.md` — *what* to build, in what order, and what counts as proof it works.
 
-Agents working here should preserve that principle across implementation, CLI behavior, tests, documentation, and release work.
+## 2 · Source-of-Truth Protocol (`docs/plan.md`)
 
-## Source of Truth
+Before writing code:
 
-`docs/plan.md` is the roadmap and progress record for non-trivial work.
+1. Read `docs/plan.md`.
+2. Identify the current incomplete phase (the first phase with unchecked work).
+3. Read that phase's goal, tasks, deliverable, and verification criteria.
+4. Work only within that phase.
 
-Use it when a change affects behavior, architecture, security, UX, CLI surface, or multiple files. Keep scope, deliverables, and verification criteria there. Mark work complete only after the required verification has passed.
+### Amending the plan
 
-Small, self-contained fixes do not need a plan entry.
+Amend the plan **before implementing** when:
 
-## Product & UX
+- architecture materially changes
+- a phase needs splitting or reordering
+- an important requirement is discovered
+- verification requirements change
+- a planned technology is replaced
 
-Complexity belongs in the implementation, not in the user's mental model.
+A fresh agent should be able to continue from the plan without relying on chat history.
 
-- **Intent:** commands express user goals, not internal mechanics.
-- **Automation:** safely infer and perform routine work without unnecessary prompts.
-- **State:** inspect machine, environment, and remote state before deciding what to do.
-- **Convention:** follow familiar CLI behavior, concise output, standard exit codes, and deterministic structured output.
-- **Progressive disclosure:** keep the common path small; expose advanced controls only when needed.
-- **Actionability:** output should say what happened, what matters, and the best next command.
-- **Safety:** never silently overwrite, delete, expose, or discard meaningful user state.
-- **Recoverability:** failures should explain the problem and give a recovery path when one is known.
-- **Agent-native:** human output remains readable; the same state and next action must be available to automation.
+## 3 · The Phase Loop
 
-Do not add a top-level command merely because an internal function exists. Prefer extending an existing intent-oriented command when it can express the behavior clearly.
+Every phase runs:
 
-## System Model
+```text
+Inspect → Implement → Verify → Sync → Commit
+```
 
-Keep these layers distinct:
+### 1. Inspect
 
-1. **Machine state** — actual user configuration and installed tools.
+- Read the current phase completely.
+- Survey the existing repository and relevant tests before changing architecture.
+- Reuse existing abstractions and conventions where they fit.
+
+### 2. Implement
+
+- Build exactly the active phase's scope.
+- Do not implement future phases or speculative abstractions.
+- Keep reusable behavior outside CLI orchestration.
+
+### 3. Verify
+
+Verification is part of implementation. Run the checks required by the phase and by the change's risk.
+
+### 4. Sync the plan
+
+Only after verification passes:
+
+- change completed tasks to `[x]`
+- change verification items to `[x]` only when actually verified
+- record blockers instead of claiming success
+
+### 5. Commit
+
+Follow the Git Workflow below.
+
+## 4 · Verification Standards (evidence over optimism)
+
+Minimum gates before declaring work complete:
+
+- typecheck passes
+- relevant tests pass
+- full test suite passes when practical
+- build/package checks pass when affected
+- CLI smoke checks pass when CLI behavior is affected
+- security-sensitive behavior has focused regression coverage
+- real end-to-end verification is used where mocks cannot prove the behavior
+
+**Blocked-verification rule:** if a check cannot run, leave the related item unchecked and record exactly what remains unverified.
+
+## 5 · Git Workflow (gates → review → stack → trunk)
+
+1. Read the files the task needs.
+2. Implement the smallest viable change.
+3. **Gates:** typecheck + tests green before any commit. Red gates = no commit.
+4. Run a local review subagent over the diff; fix everything it flags.
+5. Commit + PR. Large sequential work → **stacked PRs** instead: one concern per layer, dependencies point downward, every layer passes the gates alone.
+6. After ~10 min, address GitHub bot reviews: validate each finding, fix genuine issues in the **lowest layer owning the issue**, then re-run affected gates and commit.
+7. Merge to `main` only after required checks and review feedback are resolved. Keep trunk releasable.
+
+Commit discipline: keep commits coherent and tied to one phase or tightly related concern. Use the repository's established conventional commit style.
+
+Never commit secrets, tokens, private keys, or local environment files.
+
+## 6 · Product & UX Model
+
+`agenv` absorbs implementation complexity so users and agents can express intent, understand state, and know the next action.
+
+- **Intent over mechanism:** expose user goals, not internal operations.
+- **Automation by default:** safely infer and perform work under the hood.
+- **State-driven:** determine what is true before deciding what to do.
+- **Convention over novelty:** conventional, concise, scriptable CLI behavior.
+- **Progressive disclosure:** keep the common path small; advanced controls remain available when needed.
+- **Action-driven:** output what happened, what matters, and the single best next command when action is required.
+- **Safety over automation:** never silently destroy, overwrite, expose, or discard meaningful user state.
+- **Recoverability:** failures should have a concrete recovery path when one is known.
+- **Human-first, agent-native:** readable human output and stable structured state for agents must represent the same model.
+
+**Core rule:** **Automate the work. Explain the state. Suggest the next action.**
+
+## 7 · System Invariants
+
+The system has four state layers:
+
+1. **Machine state** — actual user configuration and installed tooling.
 2. **Environment state** — `agenv.json` and canonical files under `files/`.
 3. **Remote state** — the Git repository used for durable synchronization.
-4. **Local registry** — optional convenience metadata for selecting environments.
+4. **Local registry state** — optional convenience metadata for selecting environments.
 
-`agenv.json` is the environment manifest. Canonical copies live in the environment repository; restoration writes those copies to the machine.
+`agenv.json` is the environment manifest. Repository files are canonical. Local registry metadata must not become a second source of truth.
 
-### Security invariants
+### Security
 
-- The age private key lives only at `~/.config/agenv/key.txt` and never belongs in a repository, log, terminal output, test fixture, or agent transcript.
+- The age private key lives only at `~/.config/agenv/key.txt` and is never committed, logged, displayed, or copied into an environment repository.
 - Sensitive files are encrypted before publication unless an explicit policy says otherwise.
 - Never print decrypted secrets or credential material.
-- Validate paths before filesystem writes; reject traversal, unsafe links, and destination collisions.
-- Tests use temporary directories and test keys, never real user configuration or credentials.
+- Validate target-relative paths and reject traversal, unsafe links, and destination collisions.
+- Tests use temporary directories and test keys, never real credentials or user configuration.
 
-## Architecture
+## 8 · Architecture Rules
 
-- CLI orchestration belongs in `src/commands/`; reusable behavior belongs in shared modules.
-- Preserve existing boundaries for filesystem, Git, subprocesses, encryption, registry, manifest, paths, logging, and errors.
-- Keep one source of truth for each concept. Avoid parallel state or policy.
-- Prefer small, deterministic, testable functions over large command handlers.
-- Preserve supported Windows, Linux, and macOS behavior.
-- Do not build future phases or speculative abstractions into the current change.
+- `src/commands/` is CLI orchestration; reusable behavior belongs in shared modules.
+- Reuse existing filesystem, Git, encryption, manifest, registry, path-validation, logging, and error abstractions.
+- Keep one source of truth for each concept.
+- Keep platform behavior consistent across supported Windows, Linux, and macOS paths.
+- Prefer deterministic, testable logic over large command handlers.
 
-## Development Workflow
+## 9 · Error & Agent Interface
 
-For meaningful changes:
+Human output is the default. Keep it concise and conventional.
 
-**Plan → Inspect → Implement → Verify → Review → Sync → Commit/PR**
+For actionable states, provide an exact next command. For failures, explain the failing subsystem and the recovery path without exposing secrets.
 
-### Plan
+`--json` is the machine interface: structured output must expose the same underlying state and recommended action without requiring agents to scrape prose.
 
-Define the smallest complete change and its verification criteria in `docs/plan.md` when the work is non-trivial.
+## 10 · Testing & Documentation
 
-### Inspect
-
-Read the relevant plan, implementation, tests, and documentation. Search for existing abstractions before creating new ones.
-
-### Implement
-
-Stay within scope. Update affected tests and documentation with the behavior change.
-
-### Verify
-
-Use evidence proportional to risk. At minimum, run the relevant typecheck and tests; run the full suite, build, CLI smoke tests, security checks, and real integration/E2E checks when the change requires them.
-
-Do not claim a blocked check passed. Record the blocker and leave the corresponding plan item incomplete.
-
-### Review
-
-Review the actual diff before merge. Prioritize:
-
-1. correctness and unintended behavior
-2. security and data-loss risk
-3. broken invariants or duplicated policy
-4. missing or weak verification
-5. CLI/UX regressions
-6. stale documentation or plan state
-
-Use an independent review pass or review agent for higher-risk changes when practical. Treat GitHub automated review bots as review input: validate each finding, fix genuine issues, and rerun affected checks.
-
-### Sync
-
-Bring implementation, tests, docs, `SKILL.md`, and `docs/plan.md` back to the same verified state.
-
-### Commit / PR
-
-Keep commits focused and traceable to one concern or phase. PRs should state the problem, behavioral change, verification performed, and known limitations. Do not claim checks that were not run.
-
-## Review & Merge
-
-`main` should remain releasable.
-
-- Do not merge with a failing required gate.
-- After review fixes or conflict resolution, rerun affected verification.
-- In stacked work, fix the owning branch first, then rebase dependents and reverify.
-- Fix root causes in the layer that owns them rather than adding compensating workarounds.
-
-## Testing
-
-Test behavior and invariants rather than implementation trivia.
-
-Prefer:
+Tests protect behavior and invariants:
 
 - unit tests for deterministic logic and edge cases
 - integration tests for module boundaries
-- CLI tests for user-visible output, exit codes, and structured output
-- real E2E tests where mocks cannot establish correctness
+- CLI tests for user-visible behavior, exit codes, and structured output
+- real end-to-end tests where system behavior cannot be proven by mocks
 - regression tests for discovered security, synchronization, and data-loss bugs
 
-## Documentation
+When behavior, commands, flags, security rules, architecture, or workflows change, update the affected documentation and `docs/plan.md` in the same change. Keep implementation, plan, help, README, and `SKILL.md` aligned.
 
-When behavior, commands, flags, security rules, architecture, or workflows change, update the affected documentation in the same change.
+## 11 · Scope Control
 
-Keep the README, CLI help/reference, `SKILL.md`, `docs/plan.md`, and implementation aligned. Do not preserve stale instructions merely because they describe the old interface.
+Prefer the smallest complete solution. Do not add commands, abstractions, dependencies, configuration, or future-facing interfaces without a current requirement.
 
-## Scope
+Before adding something, ask:
 
-Prefer the smallest complete solution.
+> **Does this reduce user or system complexity today, or only prepare for a hypothetical future?**
 
-Before adding a command, abstraction, dependency, configuration option, or future-facing interface, ask:
+## 12 · Completion Rule
 
-> **Does this solve a present problem or only prepare for a hypothetical one?**
+A phase is complete only when:
 
-## Repository Map
+1. every task is `[x]`
+2. every verification item is `[x]`
+3. the implementation matches the deliverable
+4. required checks actually passed
+5. `docs/plan.md` reflects the verified state
 
-```text
-src/
-  cli.ts                CLI entry and command registration
-  commands/             command orchestration
-  scanner.ts            configuration discovery
-  manifest.ts           environment manifest and persistence
-  deploy.ts             capture/deploy/encryption plumbing
-  registry.ts           local environment registry
-  resolve.ts            target resolution
-  git.ts / proc.ts      Git and subprocess boundaries
-  deps.ts               dependency checks
-  platform.ts / fs.ts   cross-platform filesystem helpers
-  logger.ts / errors.ts user-facing output and actionable errors
-  config.ts / types.ts  configuration and shared types
-
-tests/                  hermetic test suites
-docs/                    user/developer documentation and plans
-skills/                 agent-facing operational instructions
-.github/workflows/      CI, release, and documentation automation
-```
-
-## Tooling
-
-```bash
-bun install
-bun run typecheck
-bun test
-bun run build
-bun ./src/cli.ts --help
-bun ./src/cli.ts --version
-bun ./src/cli.ts doctor
-```
-
-Use the narrowest relevant check while iterating, then run the required gates before committing.
-
-## Definition of Done
-
-A change is done when its intended behavior is implemented, verified, reviewed, documented, and reflected in the plan when applicable.
-
-**Core rule: Automate the work. Explain the state. Suggest the next action.**
+When uncertain, leave the checkbox unchecked and report what remains unverified.
