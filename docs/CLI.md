@@ -1,6 +1,6 @@
 # agenv CLI Reference
 
-This document covers all 21 commands available in the `agenv` (Antigravity Environment Manager) CLI.
+This document covers all 20 commands available in the `agenv` (Antigravity Environment Manager) CLI.
 
 ---
 
