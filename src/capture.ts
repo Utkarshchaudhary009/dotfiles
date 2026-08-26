@@ -284,18 +284,24 @@ export async function applyCandidates(
   const pendingNew: { cand: FileCandidateInput; tf: TrackedFile }[] = [];
   const refreshEntries: TrackedFile[] = [];
 
-  // Entries only resolve (expand/status) through config.categories, so any
-  // preset category the manifest doesn't know yet is registered here —
-  // otherwise the entries persisted below become invisible orphans.
-  for (const cand of candidates) {
-    if (!manifest.config.categories.some(c => c.id === cand.category)) {
-      const preset = presetCategory(cand.category);
-      manifest.config.categories.push(
-        preset
-          ? { ...preset, enabled: true }
-          : { id: cand.category as ToolCategoryId, label: cand.category, enabled: true, targetRoot: '~/' }
-      );
-    }
+  // Categories this run registered itself — rolled back if none of their
+  // candidates end up captured, so a no-op apply never grows config.categories.
+  const selfRegistered = new Set<ToolCategoryId>();
+
+  /**
+   * Entries only resolve (expand/status) through config.categories, so a
+   * candidate's category must be registered by the time its entry lands in
+   * the manifest — otherwise the persisted entry becomes an invisible orphan.
+   */
+  function ensureCategory(categoryId: ToolCategoryId): void {
+    if (manifest.config.categories.some(c => c.id === categoryId)) return;
+    const preset = presetCategory(categoryId);
+    manifest.config.categories.push(
+      preset
+        ? { ...preset, enabled: true }
+        : { id: categoryId, label: String(categoryId), enabled: true, targetRoot: '~/' }
+    );
+    selfRegistered.add(categoryId);
   }
 
   // Seed with every existing entry so a new add cannot overwrite the stored
@@ -343,6 +349,7 @@ export async function applyCandidates(
         continue;
       }
 
+      ensureCategory(tf.category);
       manifest.files.push(tf);
       storeOwners.set(storeKeyOf(tf), tf);
       pendingNew.push({ cand, tf });
@@ -362,6 +369,16 @@ export async function applyCandidates(
       const idx = manifest.files.indexOf(tf);
       if (idx >= 0) manifest.files.splice(idx, 1);
       storeOwners.delete(storeKeyOf(tf));
+      // Roll back a category this candidate registered when nothing uses it,
+      // mirroring the entry-level rollback above.
+      if (
+        selfRegistered.has(tf.category) &&
+        !manifest.files.some(f => f.category === tf.category)
+      ) {
+        const ci = manifest.config.categories.findIndex(c => c.id === tf.category);
+        if (ci >= 0) manifest.config.categories.splice(ci, 1);
+        selfRegistered.delete(tf.category);
+      }
       outcome.failed.push({ path: cand.sourcePath, error: err instanceof Error ? err.message : String(err) });
     }
   }

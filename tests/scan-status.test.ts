@@ -192,4 +192,21 @@ describe("scan --apply + status", () => {
     expect(result.summary.total).toBe(1);
     expect(result.summary.ok).toBe(1);
   });
+
+  test("applyDiscovered leaves config.categories alone when every candidate is skipped", async () => {
+    const env = await makeEnv();
+    const src = path.join(env.homeRoot, ".agents", "auth.json"); // keyword 'auth' → sensitive
+    await fs.mkdir(path.dirname(src), { recursive: true });
+    await fs.writeFile(src, "{ \"token\": 1 }");
+    const cands = [
+      { category: "agents", sourcePath: src, targetRel: "auth.json", sensitive: true },
+    ] as unknown as FileCandidate[];
+
+    const out = await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+    expect(out.added).toHaveLength(0);
+    expect(out.skipped[0].reason).toContain("--encrypt");
+
+    const m = await loadManifest(env.repoDir);
+    expect(m.config.categories.some(c => c.id === "agents")).toBe(false);
+  });
 });
