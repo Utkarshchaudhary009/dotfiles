@@ -11,6 +11,27 @@
 - **No hidden state.** All repository state lives in the `agenv.json` manifest — no sidecar files, no symlink spaghetti.
 - **Never edit outside the repo.** Canonical copies stay in `files/`; `$HOME` receives them at `expand` time.
 
+## UX & UI Philosophy
+
+The product should minimize cognitive load without minimizing capability. Complexity belongs in the implementation, not in the user's mental model.
+
+- **Intent over mechanism.** Users express what they want; agenv determines how to accomplish it. Avoid exposing internal Git, scan, capture, deploy, or reconciliation steps when they can be handled automatically.
+- **Automation by default.** Safely infer and perform everything possible. Ask only when a meaningful decision cannot be made safely or when an operation could discard user state.
+- **State-driven interaction.** Understand the current relationship between the local machine, the agenv environment, and the remote repository before acting. Commands should move the environment from one state to another rather than require users to understand internal workflows.
+- **Convention over novelty.** Use familiar CLI conventions: concise output, predictable commands, standard exit codes, correct stdout/stderr semantics, and deterministic machine-readable output.
+- **Progressive disclosure.** Keep the common path small and obvious. Preserve advanced capabilities, but expose them only when they are relevant or explicitly requested.
+- **Guidance over information density.** Explain what happened and what matters. Do not dump internal operations or noisy progress that does not help the user decide what to do.
+- **Actionability.** When action is required, provide one clear recommended next step with the exact command to run. Prefer a single obvious action over a menu of possibilities.
+- **Predictability.** Similar states should produce similar behavior and output. Avoid surprising side effects and implicit changes that users cannot reason about.
+- **Safety over automation.** Never silently overwrite, delete, or discard meaningful local or remote state. Conflicts and destructive ambiguity require explicit resolution.
+- **Minimal intervention.** Do not ask questions that the system can safely answer itself. Every prompt should represent a genuine decision or missing information.
+- **Recoverability.** Errors are recoverable states, not dead ends. Explain the problem, give the relevant fix, and provide the next command whenever possible.
+- **Continuity.** Every workflow should naturally lead to its next state. A user or agent should never need to wonder what to do next or reconstruct the workflow from documentation.
+- **Human-first, agent-native.** Human output is concise and conventional. The same underlying state and recommended actions must be available through deterministic structured output for agents and automation.
+- **Cognitive minimalism.** Minimize the concepts, decisions, commands, and context the user must hold in their head — not the capabilities of the system.
+
+**Core UX rule:** **Automate the work. Explain the state. Suggest the next action.**
+
 ## Stack
 
 TypeScript 5 (strict, ESM) · Bun ≥1.0 (dev runtime, bundler, test runner) · build targets Node ≥18 (`dist/agenv.js`) · commander (CLI) · @clack/prompts (interactive UI) · chalk · `age` binary (external encryption dep)
