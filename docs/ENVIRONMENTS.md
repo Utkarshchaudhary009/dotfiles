@@ -13,7 +13,6 @@ The registry keeps track of all your local environment repositories and their re
 
 **Automatic Updates:**
 The registry automatically updates in the background. For example:
-- `agenv clone` auto-binds the cloned repository to a friendly name.
 - `agenv publish` auto-binds the repository upon successfully creating a remote.
 - `agenv sync` updates the `lastSynced` timestamp upon completion.
 
@@ -39,11 +38,11 @@ You can interact with the registry using the following commands:
   ```
   Removes the environment from the registry (does not delete the files on disk).
 
-- **Set the active environment:**
+- **Set or show the active environment:**
   ```bash
-  agenv use <name>
+  agenv use [name]
   ```
-  Sets the active environment. To clear the active environment selection, run `agenv use --clear`.
+  Without arguments, shows the current active environment. With a name, sets it as active. To clear the active environment selection, run `agenv use --clear`.
 
 ## Targeting Environments from Anywhere
 
@@ -81,7 +80,9 @@ Here is an example session showing how to manage and switch between a "work" and
 ```bash
 # You cloned your personal env earlier; let's clone the work one
 agenv clone https://github.com/myuser/work-dotfiles --dir work
-# (This automatically binds it under the name "work")
+
+# Bind it to the registry under a friendly name
+agenv bind work --dir work
 
 # Check all registered environments
 agenv envs

@@ -131,7 +131,7 @@ Found 12 matching files across 4 categories.
 | `agenv scan` | Show discoverable config files grouped by category (no changes made) | |
 | `agenv expand` | Deploy tracked files from the repo to your home directory | `[target]`, `--dry-run`, `--force`, `--yes` |
 | `agenv update` | Pull latest changes and expand | `[target]` |
-| `agenv push` | Commit and push changes back to the remote repository | `-m, --message <msg>` |
+| `agenv push` | Commit and push changes back to the remote repository | `-m, --message <msg>` (default: "Update agenv environment") |
 | `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--yes` |
 | `agenv export` | Bundle env to portable `.tar.gz` archive (no git needed) | `--out <path>` |
 | `agenv import` | Restore an exported environment tarball | `<file>`, `--dir <path>` |
@@ -140,7 +140,7 @@ Found 12 matching files across 4 categories.
 | `agenv envs` | List all registered environments | |
 | `agenv bind` | Register an environment in the global registry | `<name>`, `--dir <path>`, `--url <url>` |
 | `agenv unbind` | Remove an environment from the registry | `<name>`, `--yes` |
-| `agenv use` | Set the active environment | `<name>`, `--clear` |
+| `agenv use` | Set or show the active environment | `[name]`, `--clear` |
 | `agenv doctor` | Run environment and dependency health check | |
 | `agenv self-update` | Update the agenv CLI to the latest GitHub release | |
 

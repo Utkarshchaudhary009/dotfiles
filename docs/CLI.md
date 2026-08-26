@@ -1,6 +1,6 @@
 # agenv CLI Reference
 
-This document covers all 20 commands available in the `agenv` (Antigravity Environment Manager) CLI.
+This document covers all 21 commands available in the `agenv` (Antigravity Environment Manager) CLI.
 
 ---
 
@@ -118,7 +118,7 @@ agenv remove ~/.gitconfig --no-delete
 
 ## `agenv clone <repo-url>`
 
-**Purpose:** Initializes a machine with an existing `agenv` pack. It clones the remote Git repository, automatically expands it to your HOME directory, and binds it in your global registry.
+**Purpose:** Initializes a machine with an existing `agenv` pack. It clones the remote Git repository, automatically expands it to your HOME directory, and decrypts any encrypted files.
 
 **Options:**
 | Option | Description |
@@ -316,9 +316,9 @@ agenv unbind work
 
 ---
 
-## `agenv use <name>`
+## `agenv use [name]`
 
-**Purpose:** Sets a specific environment as the "active" environment in the global registry. This allows you to run `agenv expand`, `agenv sync`, and other commands without having to specify a target or `cd` into the directory.
+**Purpose:** Sets a specific environment as the "active" environment in the global registry, or shows the current active environment if called without arguments. This allows you to run `agenv expand`, `agenv sync`, and other commands without having to specify a target or `cd` into the directory.
 
 **Options:**
 | Option | Description |
@@ -327,6 +327,9 @@ agenv unbind work
 
 **Usage Examples:**
 ```bash
+# Show the current active environment
+agenv use
+
 # Set 'personal' as the active environment
 agenv use personal
 

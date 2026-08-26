@@ -41,14 +41,14 @@ description: Use when the user wants to backup their environment, manage dotfile
 - `agenv envs` — List environments in the local registry.
 - `agenv bind <name> [--dir <path>] [--url <url>]` — Bind an environment to the registry manually.
 - `agenv unbind <name>` — Remove an environment from the registry.
-- `agenv use <name>` / `agenv use --clear` — Set or clear the globally active environment. Targeting works from anywhere by name, path, or URL.
+- `agenv use [name]` / `agenv use --clear` — Set or clear the globally active environment. Without arguments, shows the current active environment. Targeting works from anywhere by name, path, or URL.
 
 ## Publish / Share
 - `agenv publish [--public] [--name <repoName>] [--remote <url>] [--attach] [--new] [--yes] [--dir <path>]`
 - Creates a new GitHub repository (using `gh`), or attaches to an existing repository (verifying via `gh`). Auto-binds the environment in the registry and prints the clone URL.
 
 ## Clone / Restore
-- `agenv clone <url> [--dir <path>]` — Clones the remote environment and auto-registers it.
+- `agenv clone <url> [--dir <path>]` — Clones the remote environment and expands it.
 - `agenv export [--out <file>]` — Exports the environment to a Git-free `.tar.gz` archive.
 - `agenv import <file> [--dir <path>]` — Imports a Git-free archive (useful for air-gapped or non-Git transfers).
 
