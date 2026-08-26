@@ -1,7 +1,9 @@
 import * as clack from '@clack/prompts';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Manifest, TrackedFile, repoStorePath, slugFor } from './manifest';
+import { Manifest, TrackedFile, repoStorePath, slugFor, saveManifest } from './manifest';
+import { presetCategory } from './config';
+import { ToolCategoryId } from './types';
 import { targetPathFor, expandHome } from './platform';
 import { pathExists, listFilesRecursive, fileHash, readText } from './fs';
 import { captureFiles, decryptToMemory } from './deploy';
@@ -282,6 +284,20 @@ export async function applyCandidates(
   const pendingNew: { cand: FileCandidateInput; tf: TrackedFile }[] = [];
   const refreshEntries: TrackedFile[] = [];
 
+  // Entries only resolve (expand/status) through config.categories, so any
+  // preset category the manifest doesn't know yet is registered here —
+  // otherwise the entries persisted below become invisible orphans.
+  for (const cand of candidates) {
+    if (!manifest.config.categories.some(c => c.id === cand.category)) {
+      const preset = presetCategory(cand.category);
+      manifest.config.categories.push(
+        preset
+          ? { ...preset, enabled: true }
+          : { id: cand.category as ToolCategoryId, label: cand.category, enabled: true, targetRoot: '~/' }
+      );
+    }
+  }
+
   // Seed with every existing entry so a new add cannot overwrite the stored
   // copy of a file that is already tracked under a colliding slug.
   const storeOwners = new Map<string, TrackedFile>();
@@ -365,6 +381,32 @@ export async function applyCandidates(
   }
 
   return outcome;
+}
+
+/**
+ * applyCandidates plus manifest persistence, cancellation-safe: if the batch
+ * aborts mid-run (e.g. the user cancels at a conflict prompt), store copies
+ * for files captured so far are already on disk, so their manifest entries
+ * are saved before the error propagates instead of being orphaned.
+ */
+export async function applyCandidatesPersisting(
+  rootDir: string,
+  manifest: Manifest,
+  candidates: FileCandidateInput[],
+  opts: ApplyOptions = {}
+): Promise<ApplyOutcome> {
+  try {
+    const outcome = await applyCandidates(rootDir, manifest, candidates, opts);
+    await saveManifest(rootDir, manifest);
+    return outcome;
+  } catch (err) {
+    try {
+      await saveManifest(rootDir, manifest);
+    } catch {
+      // A secondary persistence failure must not mask the original error.
+    }
+    throw err;
+  }
 }
 
 // --- candidate collection -------------------------------------------------

@@ -1,14 +1,14 @@
 import * as path from 'node:path';
 import { CLIError } from '../errors';
 import { requireAgenvRepo } from '../config';
-import { loadManifest, saveManifest, withManifestLock, Manifest, TrackedFile } from '../manifest';
+import { loadManifest, withManifestLock, Manifest, TrackedFile } from '../manifest';
 import { log } from '../logger';
 import { pathExists } from '../fs';
 import { expandHome } from '../platform';
 import { ToolCategoryId, ALL_CATEGORIES } from '../types';
 import { scanSystem } from '../scanner';
 import {
-  applyCandidates,
+  applyCandidatesPersisting,
   collectCandidatesFromPath,
   targetPathOf,
   ApplyOutcome,
@@ -113,9 +113,7 @@ export async function addToRepo(rootDir: string, args: string[], options: AddOpt
               sensitive: false,
             }))
         : [];
-      const outcome = await applyCandidates(rootDir, manifest, [...discovered, ...trackedOnly], options);
-      await saveManifest(rootDir, manifest);
-      return outcome;
+      return applyCandidatesPersisting(rootDir, manifest, [...discovered, ...trackedOnly], options);
     }
 
     // Path mode: files and/or directories.
@@ -141,9 +139,8 @@ export async function addToRepo(rootDir: string, args: string[], options: AddOpt
       }
     }
 
-    const outcome = await applyCandidates(rootDir, manifest, candidates, options);
+    const outcome = await applyCandidatesPersisting(rootDir, manifest, candidates, options);
     outcome.failed.unshift(...resolutionFailures);
-    await saveManifest(rootDir, manifest);
     return outcome;
   });
 }

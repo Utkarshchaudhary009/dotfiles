@@ -3,8 +3,8 @@ import { scanSystem, FileCandidate } from '../scanner';
 import { CLIError } from '../errors';
 import { log } from '../logger';
 import { requireAgenvRepo } from '../config';
-import { loadManifest, saveManifest, withManifestLock } from '../manifest';
-import { applyCandidates, ApplyOutcome } from '../capture';
+import { loadManifest, withManifestLock } from '../manifest';
+import { applyCandidatesPersisting, ApplyOutcome } from '../capture';
 import { reportApplyOutcome } from './add';
 
 export interface ScanOptions {
@@ -71,7 +71,7 @@ export async function applyDiscovered(
 ): Promise<ApplyOutcome> {
   return withManifestLock(rootDir, async () => {
     const manifest = await loadManifest(rootDir);
-    const outcome = await applyCandidates(
+    return applyCandidatesPersisting(
       rootDir,
       manifest,
       candidates.map(c => ({
@@ -82,8 +82,6 @@ export async function applyDiscovered(
       })),
       opts
     );
-    await saveManifest(rootDir, manifest);
-    return outcome;
   });
 }
 
@@ -97,7 +95,7 @@ function printListing(listing: ScanListing): void {
   log.info(`Found ${listing.summary.total} file(s) — ${parts}`);
   log.sectionTitle('Discoverable Files');
   log.table(listing.files.map(f => [f.category, f.targetRel, f.sensitive ? '🔒 sensitive' : '']));
-  log.hint('Track them with: agenv scan --apply  (add --encrypt for secrets)');
+  log.hint('Track them with: agenv scan --apply  (--encrypt for secrets)');
 }
 
 export async function scanCommand(options: ScanOptions = {}) {

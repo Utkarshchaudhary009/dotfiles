@@ -1,10 +1,11 @@
-import { describe, expect, test, beforeAll } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { loadManifest, saveManifest } from "../src/manifest";
 import { discoverConfigs, buildListing, applyDiscovered, ScanOptions } from "../src/commands/scan";
 import { collectStatus, statusHints, StatusSummary } from "../src/commands/status";
+import { FileCandidate } from "../src/scanner";
 
 describe("scan --apply + status", () => {
   let tmpBase: string;
@@ -18,6 +19,10 @@ describe("scan --apply + status", () => {
 
   beforeAll(async () => {
     tmpBase = await fs.mkdtemp(path.join(os.tmpdir(), "agenv-scan-status-"));
+  });
+
+  afterAll(async () => {
+    if (tmpBase) await fs.rm(tmpBase, { recursive: true, force: true });
   });
 
   /** Fresh repo + fake home per test — hermetic and order-independent. */
@@ -151,17 +156,40 @@ describe("scan --apply + status", () => {
     await saveManifest(env.repoDir, m);
 
     const result = await collectStatus(env.repoDir, m);
-    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, newInTarget: 1, missing: 1, locked: 1 });
+    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, storeMissing: 1, missing: 1, locked: 1 });
     // Problems surface before healthy rows.
     expect(result.files.map(f => f.state)).toEqual(["conflict", "repo-missing", "locked", "target-missing"]);
 
     const hints = statusHints(result.summary);
     expect(hints.some(h => h.includes("modified"))).toBe(true);
-    expect(hints.some(h => h.includes("not yet in repo"))).toBe(true);
+    expect(hints.some(h => h.includes("stored copies missing") && h.includes("--update"))).toBe(true);
     expect(hints.some(h => h.includes("restore"))).toBe(true);
     expect(hints.some(h => h.includes("age-keygen"))).toBe(true);
+    // sync must never be suggested for capturing local edits.
+    expect(hints.every(h => !h.includes("agenv sync"))).toBe(true);
 
-    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, newInTarget: 0, missing: 0, locked: 0 };
+    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, storeMissing: 0, missing: 0, locked: 0 };
     expect(statusHints(clean)).toEqual(["Everything in sync — back up with: agenv push"]);
+  });
+
+  test("applyDiscovered registers missing preset categories so entries stay visible", async () => {
+    const env = await makeEnv(); // manifest above only registers 'opencode'
+    const src = path.join(env.homeRoot, ".agents", "skills", "x.md");
+    await fs.mkdir(path.dirname(src), { recursive: true });
+    await fs.writeFile(src, "# agent skill");
+    const cands = [
+      { category: "agents", sourcePath: src, targetRel: path.join("skills", "x.md"), sensitive: false },
+    ] as unknown as FileCandidate[];
+
+    await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+
+    const m = await loadManifest(env.repoDir);
+    const cat = m.config.categories.find(c => c.id === "agents");
+    expect(cat?.targetRoot).toBe("~/.agents");
+
+    // Before the fix this entry was invisible: collectStatus skipped it.
+    const result = await withFakeHome(env.homeRoot, () => collectStatus(env.repoDir, m));
+    expect(result.summary.total).toBe(1);
+    expect(result.summary.ok).toBe(1);
   });
 });
