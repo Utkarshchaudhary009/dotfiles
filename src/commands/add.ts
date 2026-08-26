@@ -148,7 +148,8 @@ export async function addToRepo(rootDir: string, args: string[], options: AddOpt
   });
 }
 
-function report(outcome: ApplyOutcome, json?: boolean): void {
+/** Shared printer + exit-code semantics for ApplyOutcome consumers (add, scan --apply). */
+export function reportApplyOutcome(outcome: ApplyOutcome, json?: boolean): void {
   if (json) {
     log.json(outcome);
   } else {
@@ -172,5 +173,5 @@ export async function addCommand(files: string[], options: AddOptions = {}) {
   }
   const found = await requireAgenvRepo(process.cwd(), "Tip: 'agenv add opencode' captures a whole tool's configs.");
   const outcome = await addToRepo(found.rootDir, files, options);
-  report(outcome, options.json);
+  reportApplyOutcome(outcome, options.json);
 }

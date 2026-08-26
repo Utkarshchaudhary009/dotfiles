@@ -60,6 +60,13 @@ program
 program
   .command('scan')
   .description('Scan system for discoverable config files')
+  .option('--category <id>', 'Only scan this tool category (opencode, claude, agents, git, vscode, shell)')
+  .option('--apply', 'Track every discovered file via the shared capture engine')
+  .option('--encrypt', 'Encrypt captured files (use with --apply)')
+  .option('--allow-plaintext-secrets', 'Allow adding sensitive files without encryption')
+  .option('-u, --update', 'With --apply: refresh drifted already-tracked files')
+  .option('--yes', 'Non-interactive: keep local versions when files differ from repo')
+  .option('--json', 'Emit machine-readable JSON on stdout')
   .action(wrap(scanCommand));
 
 program
@@ -104,6 +111,7 @@ program
 program
   .command('status [target]')
   .description('Show status of tracked files')
+  .option('--json', 'Emit machine-readable JSON on stdout')
   .action(wrap(statusCommand));
 
 program
