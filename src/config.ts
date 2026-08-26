@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { pathExists, readText } from './fs';
-import { ConfigSettings } from './types';
+import { CategorySettings, ConfigSettings } from './types';
 import { isWindows } from './platform';
 import { CLIError } from './errors';
 
@@ -17,6 +17,11 @@ export function createDefaultConfig(rootDir: string): ConfigSettings {
       { id: 'shell', label: 'Shell', enabled: false, targetRoot: '~/' }
     ]
   };
+}
+
+/** Scanner-preset definition for a category id, or null when not a preset. */
+export function presetCategory(id: string): CategorySettings | null {
+  return createDefaultConfig('').categories.find(c => c.id === id) ?? null;
 }
 
 export async function findConfig(startDir: string): Promise<{ rootDir: string; config: ConfigSettings } | null> {

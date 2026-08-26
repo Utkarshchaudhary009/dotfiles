@@ -1,7 +1,9 @@
 import * as clack from '@clack/prompts';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Manifest, TrackedFile, repoStorePath, slugFor } from './manifest';
+import { Manifest, TrackedFile, repoStorePath, slugFor, saveManifest } from './manifest';
+import { presetCategory } from './config';
+import { ToolCategoryId } from './types';
 import { targetPathFor, expandHome } from './platform';
 import { pathExists, listFilesRecursive, fileHash, readText } from './fs';
 import { captureFiles, decryptToMemory } from './deploy';
@@ -282,6 +284,26 @@ export async function applyCandidates(
   const pendingNew: { cand: FileCandidateInput; tf: TrackedFile }[] = [];
   const refreshEntries: TrackedFile[] = [];
 
+  // Categories this run registered itself — rolled back if none of their
+  // candidates end up captured, so a no-op apply never grows config.categories.
+  const selfRegistered = new Set<ToolCategoryId>();
+
+  /**
+   * Entries only resolve (expand/status) through config.categories, so a
+   * candidate's category must be registered by the time its entry lands in
+   * the manifest — otherwise the persisted entry becomes an invisible orphan.
+   */
+  function ensureCategory(categoryId: ToolCategoryId): void {
+    if (manifest.config.categories.some(c => c.id === categoryId)) return;
+    const preset = presetCategory(categoryId);
+    manifest.config.categories.push(
+      preset
+        ? { ...preset, enabled: true }
+        : { id: categoryId, label: String(categoryId), enabled: true, targetRoot: '~/' }
+    );
+    selfRegistered.add(categoryId);
+  }
+
   // Seed with every existing entry so a new add cannot overwrite the stored
   // copy of a file that is already tracked under a colliding slug.
   const storeOwners = new Map<string, TrackedFile>();
@@ -327,6 +349,7 @@ export async function applyCandidates(
         continue;
       }
 
+      ensureCategory(tf.category);
       manifest.files.push(tf);
       storeOwners.set(storeKeyOf(tf), tf);
       pendingNew.push({ cand, tf });
@@ -346,6 +369,16 @@ export async function applyCandidates(
       const idx = manifest.files.indexOf(tf);
       if (idx >= 0) manifest.files.splice(idx, 1);
       storeOwners.delete(storeKeyOf(tf));
+      // Roll back a category this candidate registered when nothing uses it,
+      // mirroring the entry-level rollback above.
+      if (
+        selfRegistered.has(tf.category) &&
+        !manifest.files.some(f => f.category === tf.category)
+      ) {
+        const ci = manifest.config.categories.findIndex(c => c.id === tf.category);
+        if (ci >= 0) manifest.config.categories.splice(ci, 1);
+        selfRegistered.delete(tf.category);
+      }
       outcome.failed.push({ path: cand.sourcePath, error: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -365,6 +398,32 @@ export async function applyCandidates(
   }
 
   return outcome;
+}
+
+/**
+ * applyCandidates plus manifest persistence, cancellation-safe: if the batch
+ * aborts mid-run (e.g. the user cancels at a conflict prompt), store copies
+ * for files captured so far are already on disk, so their manifest entries
+ * are saved before the error propagates instead of being orphaned.
+ */
+export async function applyCandidatesPersisting(
+  rootDir: string,
+  manifest: Manifest,
+  candidates: FileCandidateInput[],
+  opts: ApplyOptions = {}
+): Promise<ApplyOutcome> {
+  try {
+    const outcome = await applyCandidates(rootDir, manifest, candidates, opts);
+    await saveManifest(rootDir, manifest);
+    return outcome;
+  } catch (err) {
+    try {
+      await saveManifest(rootDir, manifest);
+    } catch {
+      // A secondary persistence failure must not mask the original error.
+    }
+    throw err;
+  }
 }
 
 // --- candidate collection -------------------------------------------------
