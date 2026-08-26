@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { program } from 'commander';
-import { log } from './logger';
-import { CLIError } from './errors';
+import { log, setJsonMode } from './logger';
+import { describeError } from './errors';
 import { initCommand } from './commands/init';
 import { scanCommand } from './commands/scan';
 import { addCommand } from './commands/add';
@@ -22,23 +22,21 @@ import { unbindCommand } from './commands/unbind';
 import { useCommand } from './commands/use';
 import { syncCommand } from './commands/sync';
 import { selfUpdateCommand } from './commands/self-update';
+import { ALL_CATEGORIES } from './types';
 import { CLI_VERSION } from './version';
 
 function wrap(fn: (...args: any[]) => Promise<unknown>) {
   return async (...args: any[]) => {
+    // Commander passes an options object; --json silences prose on stdout.
+    const opts = args.find(a => a && typeof a === 'object' && !Array.isArray(a) && 'json' in a) as { json?: boolean } | undefined;
+    if (opts?.json) setJsonMode(true);
     try {
       await fn(...args);
     } catch (e: unknown) {
-      if (e instanceof CLIError) {
-        log.error(e.message);
-        process.exit(1);
-      } else if (e instanceof Error) {
-        log.error(e.message);
-        process.exit(1);
-      } else {
-        log.error(String(e));
-        process.exit(1);
-      }
+      const { message, hint } = describeError(e);
+      log.error(message);
+      if (hint) log.hint(hint);
+      process.exit(1);
     }
   };
 }
@@ -66,11 +64,14 @@ program
 
 program
   .command('add')
-  .description('Add a file to the manifest')
-  .argument('<file>', 'File path to add')
-  .option('--encrypt', 'Encrypt the file')
-  .option('-c, --category <id>', 'Category to place the file in')
+  .description('Track files, directories, or a whole tool category (e.g. agenv add opencode)')
+  .argument('<files...>', 'File/dir paths — or one bare category id: ' + ALL_CATEGORIES.join(', '))
+  .option('--encrypt', 'Encrypt the file(s)')
+  .option('-c, --category <id>', 'Category to place the file(s) in')
   .option('--allow-plaintext-secrets', 'Allow adding sensitive files without encryption')
+  .option('-u, --update', 'Refresh already-tracked files from disk instead of skipping them')
+  .option('--yes', 'Non-interactive: keep local versions when files differ from repo')
+  .option('--json', 'Emit machine-readable JSON on stdout')
   .action(wrap(addCommand));
 
 program

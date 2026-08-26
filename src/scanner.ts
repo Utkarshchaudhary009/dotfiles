@@ -24,6 +24,32 @@ export function isSensitive(name: string): boolean {
   return ['auth', 'credentials', 'token', 'accounts', 'backup', '.env', 'keys', 'secret'].some(kw => lower.includes(kw));
 }
 
+/**
+ * Category-aware sensitivity for ad-hoc/path-mode adds — mirrors what the
+ * scan presets flag (git configs, shell profiles, Claude credentials) and
+ * always keeps the generic keyword heuristic, so `agenv add ~/.gitconfig`
+ * demands --encrypt even without a sensitive keyword, and a git-category
+ * file named e.g. `tokens.json` stays flagged too.
+ */
+export function isSensitiveForCategory(categoryId: string, targetRel: string): boolean {
+  const segments = targetRel.replace(/\\/g, '/').split('/');
+  const base = (segments[segments.length - 1] || '').toLowerCase();
+  switch (categoryId) {
+    case 'git':
+      return base === '.gitconfig' || base === '.gitignore_global' || isSensitive(targetRel);
+    case 'shell':
+      return (
+        ['.bashrc', '.zshrc', '.bash_profile', '.profile'].includes(base) ||
+        base.endsWith('powershell_profile.ps1') ||
+        isSensitive(targetRel)
+      );
+    case 'claude':
+      return base === '.credentials.json' || isSensitive(targetRel);
+    default:
+      return isSensitive(targetRel);
+  }
+}
+
 const presets: ScanPreset[] = [
   {
     category: 'opencode',
@@ -47,7 +73,7 @@ const presets: ScanPreset[] = [
             label: `Opencode ${rel}`,
             sourcePath: path.join(root, rel),
             targetRel: rel,
-            sensitive: isSensitive(rel)
+            sensitive: isSensitiveForCategory('opencode', rel)
           });
         }
       }
@@ -67,7 +93,7 @@ const presets: ScanPreset[] = [
         label: `Claude ${rel}`,
         sourcePath: path.join(root, rel),
         targetRel: rel,
-        sensitive: isSensitive(rel) || rel === '.credentials.json'
+        sensitive: isSensitiveForCategory('claude', rel)
       }));
     }
   },
@@ -83,7 +109,7 @@ const presets: ScanPreset[] = [
         label: `Agents ${rel}`,
         sourcePath: path.join(root, rel),
         targetRel: rel,
-        sensitive: isSensitive(rel)
+        sensitive: isSensitiveForCategory('agents', rel)
       }));
     }
   },
@@ -93,11 +119,11 @@ const presets: ScanPreset[] = [
       const candidates: FileCandidate[] = [];
       const conf = path.join(homeDir(), '.gitconfig');
       if (await pathExists(conf)) {
-        candidates.push({ id: 'git:config', category: 'git', label: 'Git Config', sourcePath: conf, targetRel: '.gitconfig', sensitive: true });
+        candidates.push({ id: 'git:config', category: 'git', label: 'Git Config', sourcePath: conf, targetRel: '.gitconfig', sensitive: isSensitiveForCategory('git', '.gitconfig') });
       }
       const ignore = path.join(homeDir(), '.gitignore_global');
       if (await pathExists(ignore)) {
-        candidates.push({ id: 'git:ignore_global', category: 'git', label: 'Git Global Ignore', sourcePath: ignore, targetRel: '.gitignore_global', sensitive: true });
+        candidates.push({ id: 'git:ignore_global', category: 'git', label: 'Git Global Ignore', sourcePath: ignore, targetRel: '.gitignore_global', sensitive: isSensitiveForCategory('git', '.gitignore_global') });
       }
       return candidates;
     }
@@ -122,7 +148,7 @@ const presets: ScanPreset[] = [
       for (const f of files) {
         const p = path.join(homeDir(), f);
         if (await pathExists(p)) {
-          candidates.push({ id: `shell:${f}`, category: 'shell', label: `Shell ${f}`, sourcePath: p, targetRel: f, sensitive: true });
+          candidates.push({ id: `shell:${f}`, category: 'shell', label: `Shell ${f}`, sourcePath: p, targetRel: f, sensitive: isSensitiveForCategory('shell', f) });
         }
       }
       
@@ -138,10 +164,10 @@ const presets: ScanPreset[] = [
               id: `shell:ps1-${ps.replace(/[\\/]/g, '-')}`, 
               category: 'shell', 
               label: `PowerShell Profile`, 
-              sourcePath: p, 
-              targetRel: ps, // Relative to ~
-              sensitive: true 
-            });
+            sourcePath: p, 
+            targetRel: ps, // Relative to ~
+            sensitive: isSensitiveForCategory('shell', ps) 
+          });
           }
         }
       }

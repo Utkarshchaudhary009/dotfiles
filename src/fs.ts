@@ -41,15 +41,25 @@ export async function ensureParent(p: string): Promise<void> {
   await mkdirp(path.dirname(p));
 }
 
-export async function listFilesRecursive(dir: string): Promise<string[]> {
+/**
+ * List files under dir recursively. Symlinked entries are skipped (Dirent
+ * reports them as neither file nor directory), which also prevents cycles.
+ * When skipDir matches a directory name, that subtree is never entered —
+ * pruning during the walk instead of filtering afterwards.
+ */
+export async function listFilesRecursive(
+  dir: string,
+  skipDir?: (name: string) => boolean
+): Promise<string[]> {
   const files: string[] = [];
-  
+
   async function walk(currentDir: string, relativePath: string) {
     if (!(await pathExists(currentDir))) return;
     const entries = await fs.readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       const rel = path.join(relativePath, entry.name);
       if (entry.isDirectory()) {
+        if (skipDir && skipDir(entry.name)) continue;
         await walk(path.join(currentDir, entry.name), rel);
       } else if (entry.isFile()) {
         files.push(rel);
