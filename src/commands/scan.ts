@@ -4,7 +4,7 @@ import { CLIError } from '../errors';
 import { log } from '../logger';
 import { requireAgenvRepo } from '../config';
 import { loadManifest, withManifestLock } from '../manifest';
-import { applyCandidatesPersisting, ApplyOutcome } from '../capture';
+import { applyCandidatesPersisting, ApplyOutcome, classifyCandidates } from '../capture';
 import { reportApplyOutcome } from './add';
 
 export interface ScanOptions {
@@ -112,6 +112,28 @@ export async function scanCommand(options: ScanOptions = {}) {
   }
 
   const found = await requireAgenvRepo(process.cwd(), "Tip: 'agenv init' creates a repo; 'agenv clone <url>' adopts one.");
+
+  // Concise, read-only classification so the user sees the safe plan before
+  // any capture happens: what is new vs already tracked vs drifted.
+  const manifest = await loadManifest(found.rootDir);
+  const classified = await classifyCandidates(found.rootDir, manifest, candidates.map(c => ({
+    category: c.category,
+    sourcePath: c.sourcePath,
+    targetRel: c.targetRel,
+    sensitive: c.sensitive,
+  })));
+  const counts = classified.reduce(
+    (acc, c) => {
+      acc[c.classification]++;
+      return acc;
+    },
+    { new: 0, tracked: 0, drifted: 0 } as Record<'new' | 'tracked' | 'drifted', number>
+  );
+  log.info(
+    `Plan: ${counts.new} new, ${counts.tracked} already tracked, ${counts.drifted} drifted` +
+      (counts.drifted > 0 ? ' (will refresh with --update)' : '')
+  );
+
   const outcome = await applyDiscovered(found.rootDir, candidates, options);
   reportApplyOutcome(outcome, options.json);
 }

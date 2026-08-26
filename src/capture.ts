@@ -426,6 +426,47 @@ export async function applyCandidatesPersisting(
   }
 }
 
+// --- candidate classification ----------------------------------------------
+
+export type CandidateClass = 'new' | 'tracked' | 'drifted';
+
+export interface ClassifiedCandidate {
+  candidate: FileCandidateInput;
+  /** new = not tracked; tracked = tracked and in sync; drifted = tracked but out of sync. */
+  classification: CandidateClass;
+}
+
+/**
+ * Classify discovered candidates against the current manifest so capture and
+ * sync workflows can decide what to do without re-implementing state logic.
+ * Pure read of disk + repo store (no writes); safe to call repeatedly.
+ *
+ * - `new`:     candidate is not in the manifest yet.
+ * - `tracked`: candidate is tracked and its disk copy matches the repo store.
+ * - `drifted`: candidate is tracked but differs/missing/locked/uncaptured — a
+ *              capture/refresh would change state.
+ */
+export async function classifyCandidates(
+  rootDir: string,
+  manifest: Manifest,
+  candidates: FileCandidateInput[]
+): Promise<ClassifiedCandidate[]> {
+  const out: ClassifiedCandidate[] = [];
+  for (const candidate of candidates) {
+    const id = `${candidate.category}:${candidate.targetRel.replace(/[\\/]/g, '-')}`;
+    const existing = manifest.files.find(
+      f => f.id === id || (f.category === candidate.category && f.targetRel === candidate.targetRel)
+    );
+    if (!existing) {
+      out.push({ candidate, classification: 'new' });
+      continue;
+    }
+    const state = await trackedFileState(rootDir, manifest, existing);
+    out.push({ candidate, classification: state === 'unchanged' ? 'tracked' : 'drifted' });
+  }
+  return out;
+}
+
 // --- candidate collection -------------------------------------------------
 
 const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'cache', '.cache']);

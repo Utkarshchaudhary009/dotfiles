@@ -54,3 +54,38 @@ export async function gitPushSetUpstream(dir: string): Promise<void> {
     );
   }
 }
+
+export interface RemoteSync {
+  /** True when the repo has a configured, resolvable upstream branch. */
+  configured: boolean;
+  /** Local commits not on the upstream yet (need `agenv push`). */
+  ahead: number;
+  /** Upstream commits not on local yet (need review/sync). */
+  behind: number;
+  error?: string;
+}
+
+/**
+ * Compare local HEAD against its upstream using only locally available refs —
+ * no network round-trip. Returns `configured: false` when there is no remote
+ * or upstream, so status can simply omit the remote dimension rather than
+ * fail. Used by `agenv status` to report remote actionable state.
+ */
+export async function gitRemoteSync(dir: string): Promise<RemoteSync> {
+  let upstream: string;
+  try {
+    upstream = (await runGit(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])).trim();
+  } catch {
+    return { configured: false, ahead: 0, behind: 0 };
+  }
+  if (!upstream) return { configured: false, ahead: 0, behind: 0 };
+
+  try {
+    const counts = (await runGit(dir, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`])).trim();
+    const [left, right] = counts.split(/\s+/).map(n => parseInt(n, 10) || 0);
+    // Left side = commits in upstream not in HEAD = behind; right = ahead.
+    return { configured: true, ahead: right, behind: left };
+  } catch (e) {
+    return { configured: true, ahead: 0, behind: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+}

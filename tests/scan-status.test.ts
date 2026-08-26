@@ -5,7 +5,8 @@ import * as path from "node:path";
 import { loadManifest, saveManifest } from "../src/manifest";
 import { discoverConfigs, buildListing, applyDiscovered, ScanOptions } from "../src/commands/scan";
 import { collectStatus, statusHints, StatusSummary } from "../src/commands/status";
-import { FileCandidate } from "../src/scanner";
+import { scanSystem, FileCandidate } from "../src/scanner";
+import { classifyCandidates } from "../src/capture";
 
 describe("scan --apply + status", () => {
   let tmpBase: string;
@@ -156,19 +157,19 @@ describe("scan --apply + status", () => {
     await saveManifest(env.repoDir, m);
 
     const result = await collectStatus(env.repoDir, m);
-    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, storeMissing: 1, missing: 1, locked: 1 });
+    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, needsCapture: 1, missing: 1, locked: 1, remote: { configured: false, ahead: 0, behind: 0 } });
     // Problems surface before healthy rows.
     expect(result.files.map(f => f.state)).toEqual(["conflict", "repo-missing", "locked", "target-missing"]);
 
     const hints = statusHints(result.summary);
     expect(hints.some(h => h.includes("modified"))).toBe(true);
-    expect(hints.some(h => h.includes("stored copies missing") && h.includes("--update"))).toBe(true);
+    expect(hints.some(h => h.includes("need capture") && h.includes("--update"))).toBe(true);
     expect(hints.some(h => h.includes("restore"))).toBe(true);
     expect(hints.some(h => h.includes("age-keygen"))).toBe(true);
     // sync must never be suggested for capturing local edits.
     expect(hints.every(h => !h.includes("agenv sync"))).toBe(true);
 
-    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, storeMissing: 0, missing: 0, locked: 0 };
+    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, needsCapture: 0, missing: 0, locked: 0, remote: { configured: false, ahead: 0, behind: 0 } };
     expect(statusHints(clean)).toEqual(["Everything in sync — back up with: agenv push"]);
   });
 
@@ -208,5 +209,64 @@ describe("scan --apply + status", () => {
 
     const m = await loadManifest(env.repoDir);
     expect(m.config.categories.some(c => c.id === "agents")).toBe(false);
+  });
+
+  test("scanSystem is deterministic and stably ordered for the same machine state", async () => {
+    const env = await makeEnv();
+    await write(env, "opencode.json", "{}");
+    await write(env, "smart-title.jsonc", "{}");
+    await write(env, "agents/demo/SKILL.md", "# d");
+    await write(env, "skills/other/SKILL.md", "# o");
+
+    const run = async () => withFakeHome(env.homeRoot, () => scanSystem(["opencode", "claude", "git", "shell", "vscode", "agents"]));
+    const a = await run();
+    const b = await run();
+
+    // Repeated scans of identical state produce identical results.
+    expect(b).toEqual(a);
+
+    // Within a category the result is sorted by targetRel (no readdir jitter).
+    const rels = a.map(c => `${c.category}/${c.targetRel.replace(/\\/g, "/")}`);
+    const sorted = [...rels].sort();
+    expect(rels).toEqual(sorted);
+  });
+
+  test("classifyCandidates tags new / tracked / drifted against the manifest", async () => {
+    const env = await makeEnv();
+    // One file tracked and captured (in sync) ...
+    await write(env, "opencode.json", "{}");
+    // ... one file present on disk but not yet tracked (inside the preset whitelist).
+    await write(env, "skills/demo/SKILL.md", "# new");
+
+    const all = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    const added = all.filter(c => c.targetRel === "opencode.json");
+    await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, added, {}));
+
+    const m = await loadManifest(env.repoDir);
+
+    // untouched -> tracked; undiscovered-by-apply -> new
+    const tracked = await withFakeHome(env.homeRoot, () => classifyCandidates(env.repoDir, m, all));
+    const byRel = Object.fromEntries(tracked.map(t => [t.candidate.targetRel.replace(/\\/g, "/"), t.classification]));
+    expect(byRel["opencode.json"]).toBe("tracked");
+    expect(byRel["skills/demo/SKILL.md"]).toBe("new");
+
+    // drift the captured file -> drifted
+    await write(env, "opencode.json", '{"drift":true}');
+    const drifted = await withFakeHome(env.homeRoot, () => classifyCandidates(env.repoDir, m, all));
+    const after = Object.fromEntries(drifted.map(t => [t.candidate.targetRel.replace(/\\/g, "/"), t.classification]));
+    expect(after["opencode.json"]).toBe("drifted");
+    expect(after["skills/demo/SKILL.md"]).toBe("new");
+  });
+
+  test("status success path reports only the in-sync hint", async () => {
+    const env = await makeEnv();
+    await write(env, "opencode.json", "{}");
+    const cands = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+
+    const m = await loadManifest(env.repoDir);
+    const result = await collectStatus(env.repoDir, m);
+    expect(result.summary).toEqual({ total: 1, ok: 1, modified: 0, needsCapture: 0, missing: 0, locked: 0, remote: { configured: false, ahead: 0, behind: 0 } });
+    expect(statusHints(result.summary)).toEqual(["Everything in sync — back up with: agenv push"]);
   });
 });

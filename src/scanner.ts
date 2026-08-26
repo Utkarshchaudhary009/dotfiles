@@ -177,13 +177,31 @@ const presets: ScanPreset[] = [
   }
 ];
 
+/**
+ * Deterministic ordering: by preset category (so the same tool grouping
+ * always appears first) then by targetRel. The underlying `readdir` walk does
+ * not guarantee order, so we sort explicitly — repeated scans of the same
+ * machine state must produce identical results.
+ */
+const PRESET_ORDER = presets.map(p => p.category);
+
+function sortCandidates(cands: FileCandidate[]): FileCandidate[] {
+  return [...cands].sort((a, b) => {
+    const ca = PRESET_ORDER.indexOf(a.category);
+    const cb = PRESET_ORDER.indexOf(b.category);
+    if (ca !== cb) return ca - cb;
+    return a.targetRel.replace(/\\/g, '/').localeCompare(b.targetRel.replace(/\\/g, '/'));
+  });
+}
+
 export async function scanSystem(cats: ToolCategoryId[]): Promise<FileCandidate[]> {
   let all: FileCandidate[] = [];
   for (const preset of presets) {
     if (cats.includes(preset.category)) {
       const found = await preset.find();
-      all = all.concat(found);
+      // Sort within a preset too, so a single category's output is stable.
+      all = all.concat(sortCandidates(found));
     }
   }
-  return all;
+  return sortCandidates(all);
 }
