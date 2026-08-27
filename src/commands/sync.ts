@@ -9,11 +9,15 @@ import { requireAgenvRepo } from '../config';
 import chalk from 'chalk';
 import { pathExists } from '../fs';
 import * as path from 'node:path';
+import { discoverConfigs, applyDiscovered } from './scan';
+import { loadManifest } from '../manifest';
 
 export interface SyncOptions {
   push?: boolean;
   noPush?: boolean;
   yes?: boolean;
+  /** Skip the auto-capture of newly-discoverable files. */
+  noScan?: boolean;
 }
 
 export async function syncCommand(target: string | undefined, options: SyncOptions) {
@@ -56,6 +60,28 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
     }
   } else {
     clack.log.info('No remote configured and no URL found in registry. Skipping pull.');
+  }
+
+  // Auto-capture newly discoverable files (idempotent: skips already-tracked ones).
+  if (!options.noScan) {
+    try {
+      const discovered = await discoverConfigs();
+      if (discovered.length > 0) {
+        const before = (await loadManifest(repoPath)).files.length;
+        const outcome = await applyDiscovered(repoPath, discovered, { yes: options.yes });
+        const added = outcome.added.length + outcome.updated.length;
+        if (added > 0) {
+          clack.log.step(`Captured ${added} discoverable file(s) (${outcome.skipped.length} skipped).`);
+        } else {
+          clack.log.info(`${discovered.length} discoverable file(s) already tracked.`);
+        }
+        // Defensive: if manifest grew we know capture ran.
+        void before;
+      }
+    } catch (e: any) {
+      // Auto-capture is a best-effort convenience — never block sync.
+      clack.log.warn(`Auto-capture skipped: ${e.message || e}`);
+    }
   }
 
   // Expand

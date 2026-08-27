@@ -165,6 +165,7 @@ program
   .description('Seamless 2-way sync: pull -> expand -> push')
   .option('--push', 'Push local changes after committing')
   .option('--no-push', 'Do not push local changes')
+  .option('--no-scan', 'Skip auto-capture of newly discoverable files')
   .option('--yes', 'Skip interactive prompts')
   .action(wrap(syncCommand));
 

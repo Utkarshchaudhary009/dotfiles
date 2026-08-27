@@ -6,6 +6,7 @@ import { loadManifest, saveManifest } from "../src/manifest";
 import { discoverConfigs, buildListing, applyDiscovered, ScanOptions } from "../src/commands/scan";
 import { collectStatus, statusHints, StatusSummary } from "../src/commands/status";
 import { FileCandidate } from "../src/scanner";
+import { runProcess } from "../src/proc";
 
 describe("scan --apply + status", () => {
   let tmpBase: string;
@@ -156,20 +157,23 @@ describe("scan --apply + status", () => {
     await saveManifest(env.repoDir, m);
 
     const result = await collectStatus(env.repoDir, m);
-    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, storeMissing: 1, missing: 1, locked: 1 });
+    expect(result.summary).toEqual({ total: 4, ok: 0, modified: 1, notCaptured: 1, missing: 1, locked: 1 });
     // Problems surface before healthy rows.
     expect(result.files.map(f => f.state)).toEqual(["conflict", "repo-missing", "locked", "target-missing"]);
 
-    const hints = statusHints(result.summary);
+    const hints = statusHints(result.summary, undefined, "no-remote");
     expect(hints.some(h => h.includes("modified"))).toBe(true);
-    expect(hints.some(h => h.includes("stored copies missing") && h.includes("--update"))).toBe(true);
+    expect(hints.some(h => h.includes("not yet captured") && h.includes("--update"))).toBe(true);
     expect(hints.some(h => h.includes("restore"))).toBe(true);
     expect(hints.some(h => h.includes("age-keygen"))).toBe(true);
     // sync must never be suggested for capturing local edits.
     expect(hints.every(h => !h.includes("agenv sync"))).toBe(true);
 
-    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, storeMissing: 0, missing: 0, locked: 0 };
-    expect(statusHints(clean)).toEqual(["Everything in sync — back up with: agenv push"]);
+    const clean: StatusSummary = { total: 2, ok: 2, modified: 0, notCaptured: 0, missing: 0, locked: 0 };
+    // When there is a remote, the in-sync hint is the only one. With no
+    // remote, the "publish" hint replaces it — both are valid terminal states.
+    expect(statusHints(clean, undefined, "in-sync")).toEqual(["Everything in sync — back up with: agenv push"]);
+    expect(statusHints(clean, undefined, "no-remote")).toEqual(["No remote configured — publish with: agenv publish <url>"]);
   });
 
   test("applyDiscovered registers missing preset categories so entries stay visible", async () => {
@@ -208,5 +212,63 @@ describe("scan --apply + status", () => {
 
     const m = await loadManifest(env.repoDir);
     expect(m.config.categories.some(c => c.id === "agents")).toBe(false);
+  });
+
+  test("discoverConfigs is deterministic: identical results across repeated runs", async () => {
+    const env = await makeEnv();
+    await write(env, "opencode.json", "{}");
+    await write(env, "skills/a/SKILL.md", "a");
+    await write(env, "skills/b/SKILL.md", "b");
+
+    const stableKey = (c: FileCandidate) => `${c.category}::${c.targetRel}`;
+    const r1 = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    const r2 = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    expect(r2.length).toBe(r1.length);
+    expect(r2.map(stableKey).sort()).toEqual(r1.map(stableKey).sort());
+  });
+
+  test("applyDiscovered is idempotent: rerunning never duplicates or re-captures unchanged files", async () => {
+    const env = await makeEnv();
+    await write(env, "opencode.json", "{}");
+    const cands = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    const first = await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+    expect(first.added).toHaveLength(1);
+    const second = await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+    expect(second.added).toHaveLength(0);
+    expect(second.updated).toHaveLength(0);
+    expect(second.skipped).toHaveLength(1);
+
+    const m = await loadManifest(env.repoDir);
+    expect(m.files.filter(f => f.targetRel === "opencode.json")).toHaveLength(1);
+  });
+
+  test("collectStatus reports no-remote and ahead remote states", async () => {
+    const env = await makeEnv();
+    // Need at least one tracked file so remote state matters.
+    await write(env, "opencode.json", "{}");
+    const cands = await withFakeHome(env.homeRoot, () => discoverConfigs("opencode"));
+    await withFakeHome(env.homeRoot, () => applyDiscovered(env.repoDir, cands, {}));
+    // Initialize a real git repo so remote-state can be computed.
+    const init = await runProcess(["git", "init", "-q"], { cwd: env.repoDir });
+    if (init.code !== 0) {
+      // git binary unavailable in sandbox — skip rather than fail the test.
+      return;
+    }
+    await runProcess(["git", "config", "user.email", "t@e"], { cwd: env.repoDir });
+    await runProcess(["git", "config", "user.name", "t"], { cwd: env.repoDir });
+    await runProcess(["git", "add", "-A"], { cwd: env.repoDir });
+    await runProcess(["git", "commit", "-q", "-m", "init"], { cwd: env.repoDir });
+
+    // No origin yet → no-remote.
+    const manifest = await loadManifest(env.repoDir);
+    const noOrigin = await collectStatus(env.repoDir, manifest);
+    expect(noOrigin.remote).toBe("no-remote");
+    expect(statusHints(noOrigin.summary, undefined, noOrigin.remote).some(h => h.includes("publish"))).toBe(true);
+
+    // Add a local origin (no fetch) — upstream doesn't exist yet, so 'ahead'.
+    await runProcess(["git", "remote", "add", "origin", env.repoDir], { cwd: env.repoDir });
+    const withOrigin = await collectStatus(env.repoDir, manifest);
+    expect(withOrigin.remote).toBe("ahead");
+    expect(statusHints(withOrigin.summary, undefined, withOrigin.remote).some(h => h.includes("agenv push"))).toBe(true);
   });
 });
