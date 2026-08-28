@@ -81,10 +81,14 @@ export async function collectStatus(rootDir: string, manifest: Manifest): Promis
   );
 
   // Remote state is best-effort; never let a Git hiccup break status.
-  let remote: RemoteState = 'no-remote';
+  let remote: RemoteState;
   try {
     remote = await gitRemoteState(rootDir);
-  } catch {
+  } catch (e) {
+    // `gitRemoteState` is designed not to throw, but keep this guard so a
+    // future change can't take down the whole status command.
+    const msg = e instanceof Error ? e.message : String(e);
+    log.warn(`Could not read remote state: ${msg}`);
     remote = 'unknown';
   }
 
@@ -102,8 +106,11 @@ export function statusHints(s: StatusSummary, keyPath?: string, remote: RemoteSt
   if (s.notCaptured > 0) hints.push(`${s.notCaptured} not yet captured — recapture with: agenv add <path> --update  (or: agenv scan --apply --update)`);
   if (s.missing > 0) hints.push(`${s.missing} missing on disk — restore with: agenv expand${s.modified > 0 ? ' (careful: local edits exist)' : ''}`);
   if (s.locked > 0) hints.push(HINTS.keyMissing(keyPath));
-  if (remote === 'ahead' || remote === 'diverged') {
+  if (remote === 'ahead') {
     hints.push(`Remote is ${REMOTE_LABELS[remote]} — publish with: agenv push`);
+  } else if (remote === 'diverged') {
+    // Diverged branches need reconciliation before any push can succeed.
+    hints.push(`Remote is ${REMOTE_LABELS[remote]} — reconcile with: agenv pull --rebase (then agenv push)`);
   } else if (remote === 'behind') {
     hints.push(`Remote is ${REMOTE_LABELS[remote]} — pull with: agenv sync`);
   } else if (remote === 'no-remote' && s.total > 0) {

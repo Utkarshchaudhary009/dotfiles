@@ -84,8 +84,10 @@ export async function gitRemoteState(dir: string): Promise<RemoteState> {
   try {
     upstream = (await runGit(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])).trim();
   } catch {
-    // Branch exists but no upstream yet — treat as 'ahead' so user knows
-    // they can push to publish.
+    // No upstream configured yet: if HEAD exists we have local commits that
+    // could be pushed, so classify as 'ahead' to surface the next action.
+    // If HEAD itself is missing the repo is in an unexpected state — report
+    // 'unknown' rather than guessing.
     try {
       await runGit(dir, ['rev-parse', '--verify', 'HEAD']);
       return 'ahead';
@@ -94,9 +96,26 @@ export async function gitRemoteState(dir: string): Promise<RemoteState> {
     }
   }
 
-  // 3. Compare counts both directions.
-  const ahead = await runGit(dir, ['rev-list', '--count', `${upstream}..HEAD`]).then(s => parseInt(s.trim(), 10)).catch(() => 0);
-  const behind = await runGit(dir, ['rev-list', '--count', `HEAD..${upstream}`]).then(s => parseInt(s.trim(), 10)).catch(() => 0);
+  // 3. Compare counts both directions in parallel. A failure here usually
+  //    means the remote is unreachable (offline, auth, deleted) — surface
+  //    as 'unknown' instead of silently treating the divergence as zero.
+  function count(revRange: string): Promise<number> {
+    return runGit(dir, ['rev-list', '--count', revRange])
+      .then(s => {
+        const n = parseInt(s.trim(), 10);
+        return Number.isFinite(n) ? n : Promise.reject(new Error(`bad count: ${s}`));
+      });
+  }
+  let ahead: number;
+  let behind: number;
+  try {
+    [ahead, behind] = await Promise.all([
+      count(`${upstream}..HEAD`),
+      count(`HEAD..${upstream}`),
+    ]);
+  } catch {
+    return 'unknown';
+  }
   if (ahead > 0 && behind > 0) return 'diverged';
   if (ahead > 0) return 'ahead';
   if (behind > 0) return 'behind';
