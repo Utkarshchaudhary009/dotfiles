@@ -126,16 +126,16 @@ Found 12 matching files across 4 categories.
 | `agenv init` | Interactive setup: scan system, select files, set encryption key, create repo | `--dir <path>`, `--yes`, `--allow-plaintext-secrets`, `--force`, `--publish`, `--no-publish` |
 | `agenv publish` | Publish environment to GitHub (creates repo, commits, pushes) | `--public`, `--name <repoName>`, `--remote <url>`, `--attach`, `--new`, `--yes`, `--dir <path>` |
 | `agenv clone` | Initialize a machine with an existing pack (auto-expands and decrypts) | `<url>`, `--dir <path>` |
-| `agenv add` | Add a file to the pack | `<file>`, `--encrypt`, `-c <category>`, `--allow-plaintext-secrets` |
+| `agenv add` | Add files to the pack (or a whole tool category) | `<files...>`, `--encrypt`, `-c <category>`, `--allow-plaintext-secrets`, `-u/--update`, `--yes`, `--json` |
 | `agenv remove` | Remove a file from the pack | `<file\|id>`, `--no-delete` |
-| `agenv scan` | Show discoverable config files grouped by category (no changes made) | |
+| `agenv scan` | Show discoverable config files grouped by category | `--category <id>`, `--apply`, `--encrypt`, `--allow-plaintext-secrets`, `-u/--update`, `--yes`, `--json` |
 | `agenv expand` | Deploy tracked files from the repo to your home directory | `[target]`, `--dry-run`, `--force`, `--yes` |
 | `agenv update` | Pull latest changes and expand | `[target]` |
 | `agenv push` | Commit and push changes back to the remote repository | `-m, --message <msg>` (default: "Update agenv environment") |
-| `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--yes` |
+| `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--no-scan`, `--yes` |
 | `agenv export` | Bundle env to portable `.tar.gz` archive (no git needed) | `--out <path>` |
 | `agenv import` | Restore an exported environment tarball | `<file>`, `--dir <path>` |
-| `agenv status` | Compare repo vs disk state (new/modified/missing) | `[target]` |
+| `agenv status` | Compare repo vs disk state (new/modified/missing) | `[target]`, `--json` |
 | `agenv list` | List all tracked files grouped by category | `[target]` |
 | `agenv envs` | List all registered environments | |
 | `agenv bind` | Register an environment in the global registry | `<name>`, `--dir <path>`, `--url <url>` |

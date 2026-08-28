@@ -64,26 +64,44 @@ agenv publish --remote https://github.com/myuser/existing-repo.git
 **Purpose:** Performs a read-only discovery of your system, checking for known files and directories. It groups the results by category (`opencode`, `claude`, `agents`, `git`, `vscode`, `shell`).
 
 **Options:**
-*None*
+| Option | Description |
+|--------|-------------|
+| `--category <id>` | Only scan this tool category (e.g., `opencode`, `git`). |
+| `--apply` | Track every discovered file via the capture engine. |
+| `--encrypt` | Encrypt captured files (use with `--apply`). |
+| `--allow-plaintext-secrets` | Allow adding sensitive files without encryption (use with `--apply`). |
+| `-u, --update` | With `--apply`: refresh drifted already-tracked files. |
+| `--yes` | Non-interactive: keep local versions when files differ from repo. |
+| `--json` | Emit machine-readable JSON on stdout. |
 
 **Usage Examples:**
 ```bash
+# Preview discoverable files grouped by category
 agenv scan
+
+# Scan only one category
+agenv scan --category git
+
+# Track every discovered file
+agenv scan --apply
 ```
-**Notes:** This command makes no changes to your system or manifest. It is strictly for discovery.
+**Notes:** This command makes no changes to your system or manifest (unless `--apply` is used). It is strictly for discovery.
 
 ---
 
-## `agenv add <file>`
+## `agenv add <files...>`
 
-**Purpose:** Adds a specific file to your environment pack and manifest. 
+**Purpose:** Adds one or more specific files to your environment pack and manifest, or a whole tool category. Supports multiple paths or a bare category id (e.g., `agenv add opencode`).
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `--encrypt` | Encrypts the file using your `age` key before saving it to the pack. |
-| `-c, --category <category>` | Assigns the file to a specific category (e.g., `git`, `custom`). |
+| `--encrypt` | Encrypts the file(s) using your `age` key before saving them to the pack. |
+| `-c, --category <id>` | Assigns the file(s) to a specific category (e.g., `git`, `custom`). |
 | `--allow-plaintext-secrets` | Allow adding sensitive files without encryption. |
+| `-u, --update` | Refresh already-tracked files from disk instead of skipping them. |
+| `--yes` | Non-interactive: keep local versions when files differ from repo. |
+| `--json` | Emit machine-readable JSON on stdout. |
 
 **Usage Examples:**
 ```bash
@@ -92,6 +110,9 @@ agenv add ~/.bashrc -c shell
 
 # Add and encrypt a file containing sensitive keys
 agenv add ~/.gitconfig --encrypt -c git
+
+# Track an entire tool category
+agenv add opencode
 ```
 
 ---
@@ -212,6 +233,7 @@ agenv push -m "Add custom SSH config"
 |--------|-------------|
 | `--push` | Commit and push local changes to the remote. |
 | `--no-push` | Do not push local changes (skip the push step entirely). |
+| `--no-scan` | Skip auto-capture of newly discoverable files. |
 | `--yes` | Skip interactive prompts. |
 
 **Usage Examples:**
@@ -230,7 +252,9 @@ agenv sync work --push
 **Purpose:** Compares the state of the files in your `agenv` repository against the current state of the files on your local disk. 
 
 **Options:**
-*None*
+| Option | Description |
+|--------|-------------|
+| `--json` | Emit machine-readable JSON on stdout. |
 
 **Usage Examples:**
 ```bash
