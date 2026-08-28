@@ -74,12 +74,11 @@ export async function gitRemoteState(dir: string): Promise<RemoteState> {
   //    (no error = a real repo state). If it lists nothing, there is genuinely
   //    no origin. If it itself errors, git itself is broken — surface 'unknown'
   //    rather than pretending the user just hasn't configured a remote yet.
-  let remote: string | null = null;
   try {
     const list = (await runGit(dir, ['remote'])).trim();
     if (list.length === 0) return 'no-remote';
-    remote = (await runGit(dir, ['remote', 'get-url', 'origin'])).trim() || null;
-    if (!remote) return 'no-remote';
+    const url = (await runGit(dir, ['remote', 'get-url', 'origin'])).trim();
+    if (!url) return 'no-remote';
   } catch {
     return 'unknown';
   }

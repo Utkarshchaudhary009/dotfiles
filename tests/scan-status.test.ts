@@ -316,9 +316,13 @@ describe("scan --apply + status", () => {
 
     // Build a fake `git` wrapper that delegates to the real git but fails
     // rev-list --count with a non-zero exit. Prepend its directory to PATH.
+    // The whole setup+assert runs inside a single try/finally so any throw
+    // (during mkdtemp/writeFile/chmod/expect) restores PATH. The wrapper dir
+    // is small and ephemeral; bun:test temp dirs are cleaned by the runner.
     const which = await runProcess(["which", "git"], { cwd: env.repoDir });
     const realGit = which.stdout.trim();
     if (!realGit) return;
+    const oldPath = process.env.PATH;
     const binDir = mkdtempSync(path.join(os.tmpdir(), "agenv-fakebin-"));
     const wrapper = path.join(binDir, "git");
     writeFileSync(
@@ -326,7 +330,6 @@ describe("scan --apply + status", () => {
       `#!/bin/sh\nif [ "$1" = "rev-list" ] && [ "$2" = "--count" ]; then exit 128; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
     );
     chmodSync(wrapper, 0o755);
-    const oldPath = process.env.PATH;
     process.env.PATH = `${binDir}${path.delimiter}${oldPath ?? ""}`;
     try {
       const state = await gitRemoteState(env.repoDir);
