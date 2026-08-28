@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs/promises";
+import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { loadManifest, saveManifest } from "../src/manifest";
@@ -175,9 +176,11 @@ describe("scan --apply + status", () => {
     expect(statusHints(clean, undefined, "in-sync")).toEqual(["Everything in sync — back up with: agenv push"]);
     expect(statusHints(clean, undefined, "no-remote")).toEqual(["No remote configured — publish with: agenv publish <url>"]);
     // Diverged branches need reconciliation, not a plain push (which would
-    // fail non-fast-forward). Verify the hint steers the user to sync.
+    // fail non-fast-forward). The hint must point at a command that actually
+    // reconciles (sync uses --ff-only, so a rebase has to come from git).
     const divergedHints = statusHints(clean, undefined, "diverged");
-    expect(divergedHints.some(h => h.includes("agenv sync"))).toBe(true);
+    expect(divergedHints.some(h => h.includes("pull --rebase"))).toBe(true);
+    expect(divergedHints.some(h => h.includes("agenv push"))).toBe(true);
     expect(divergedHints.every(h => !/^[^—]*— publish with: agenv push$/.test(h))).toBe(true);
     // 'unknown' state should never fabricate a remote hint.
     expect(statusHints(clean, undefined, "unknown")).toEqual(["Everything in sync — back up with: agenv push"]);
@@ -289,18 +292,47 @@ describe("scan --apply + status", () => {
     }
     await runProcess(["git", "config", "user.email", "t@e"], { cwd: env.repoDir });
     await runProcess(["git", "config", "user.name", "t"], { cwd: env.repoDir });
-    // Configure a remote pointing at a bogus path so rev-list fails.
-    await runProcess(["git", "remote", "add", "origin", "/nonexistent/remote-path"], { cwd: env.repoDir });
     // Add a commit so HEAD exists and we get past the no-upstream branch.
     await runProcess(["git", "add", "-A"], { cwd: env.repoDir });
     await runProcess(["git", "commit", "-q", "-m", "init"], { cwd: env.repoDir });
-    // Use `git fetch` to materialize the upstream ref so rev-parse @{u} succeeds,
-    // then the bogus remote will make rev-list fail.
-    // Alternative simpler path: just assert it does NOT return 'in-sync' when
-    // upstream is missing. With a real local path it may still resolve, so
-    // we accept any of {unknown, ahead, behind, diverged} — but never 'in-sync'
-    // for a fresh repo.
-    const state = await gitRemoteState(env.repoDir);
-    expect(["unknown", "ahead", "behind", "diverged"]).toContain(state);
+    // Create a local bare "origin" repo, register it, and push so @{u} resolves
+    // to a real ref. Then shadow `git` on PATH with a wrapper that fails
+    // `rev-list --count` — the only signal we want to test is that this
+    // failure path returns 'unknown' instead of silently claiming in-sync.
+    const originDir = mkdtempSync(path.join(os.tmpdir(), "agenv-origin-"));
+    const init = await runProcess(["git", "init", "--bare", "-q"], { cwd: originDir });
+    if (init.code !== 0) return; // git unavailable
+    await runProcess(["git", "remote", "add", "origin", originDir], { cwd: env.repoDir });
+    // Push the current branch (whatever it's named) to origin.
+    const branchRes = await runProcess(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: env.repoDir });
+    const branch = branchRes.stdout.trim() || "main";
+    const push = await runProcess(["git", "push", "-q", "origin", `HEAD:refs/heads/${branch}`], { cwd: env.repoDir });
+    if (push.code !== 0) return; // push failed — skip
+    await runProcess(["git", "branch", "--set-upstream-to", `origin/${branch}`], { cwd: env.repoDir });
+
+    // Sanity: without the wrapper, state is 'in-sync'.
+    const baseline = await gitRemoteState(env.repoDir);
+    expect(baseline).toBe("in-sync");
+
+    // Build a fake `git` wrapper that delegates to the real git but fails
+    // rev-list --count with a non-zero exit. Prepend its directory to PATH.
+    const which = await runProcess(["which", "git"], { cwd: env.repoDir });
+    const realGit = which.stdout.trim();
+    if (!realGit) return;
+    const binDir = mkdtempSync(path.join(os.tmpdir(), "agenv-fakebin-"));
+    const wrapper = path.join(binDir, "git");
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\nif [ "$1" = "rev-list" ] && [ "$2" = "--count" ]; then exit 128; fi\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    );
+    chmodSync(wrapper, 0o755);
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${oldPath ?? ""}`;
+    try {
+      const state = await gitRemoteState(env.repoDir);
+      expect(state).toBe("unknown");
+    } finally {
+      process.env.PATH = oldPath;
+    }
   });
 });
