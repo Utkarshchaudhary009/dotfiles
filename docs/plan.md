@@ -65,19 +65,19 @@ Phases are ordered. If scope or architecture changes, update this plan before or
 
 ### Tasks
 
-- [ ] Make scanning read-only and deterministic.
-- [ ] Make scanner results reusable by capture and synchronization workflows.
-- [ ] Add safe `scan --apply` behavior where appropriate.
-- [ ] Redesign `status` around a concise summary-first view.
-- [ ] Report actionable local, remote, missing, locked, and conflict states.
-- [ ] Ensure status never requires users to understand internal Git/filesystem terminology.
+- [x] Make scanning read-only and deterministic.
+- [x] Make scanner results reusable by capture and synchronization workflows.
+- [x] Add safe `scan --apply` behavior where appropriate.
+- [x] Redesign `status` around a concise summary-first view.
+- [x] Report actionable local, remote, missing, locked, and conflict states.
+- [x] Ensure status never requires users to understand internal Git/filesystem terminology.
 
 ### Verification
 
-- [ ] Repeated scans produce stable results for the same machine state.
-- [ ] Applying scan results is idempotent where safe.
-- [ ] Status correctly identifies every supported actionable state.
-- [ ] Status tests cover success, drift, missing files, and conflicts.
+- [x] Repeated scans produce stable results for the same machine state.
+- [x] Applying scan results is idempotent where safe.
+- [x] Status correctly identifies every supported actionable state.
+- [x] Status tests cover success, drift, missing files, and conflicts.
 
 ---
 
