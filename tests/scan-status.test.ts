@@ -175,9 +175,9 @@ describe("scan --apply + status", () => {
     expect(statusHints(clean, undefined, "in-sync")).toEqual(["Everything in sync — back up with: agenv push"]);
     expect(statusHints(clean, undefined, "no-remote")).toEqual(["No remote configured — publish with: agenv publish <url>"]);
     // Diverged branches need reconciliation, not a plain push (which would
-    // fail non-fast-forward). Verify the hint steers the user to rebase first.
+    // fail non-fast-forward). Verify the hint steers the user to sync.
     const divergedHints = statusHints(clean, undefined, "diverged");
-    expect(divergedHints.some(h => h.includes("reconcile") || h.includes("rebase"))).toBe(true);
+    expect(divergedHints.some(h => h.includes("agenv sync"))).toBe(true);
     expect(divergedHints.every(h => !/^[^—]*— publish with: agenv push$/.test(h))).toBe(true);
     // 'unknown' state should never fabricate a remote hint.
     expect(statusHints(clean, undefined, "unknown")).toEqual(["Everything in sync — back up with: agenv push"]);

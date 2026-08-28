@@ -110,7 +110,7 @@ export function statusHints(s: StatusSummary, keyPath?: string, remote: RemoteSt
     hints.push(`Remote is ${REMOTE_LABELS[remote]} — publish with: agenv push`);
   } else if (remote === 'diverged') {
     // Diverged branches need reconciliation before any push can succeed.
-    hints.push(`Remote is ${REMOTE_LABELS[remote]} — reconcile with: agenv pull --rebase (then agenv push)`);
+    hints.push(`Remote is ${REMOTE_LABELS[remote]} — reconcile with: agenv sync (handles pull+rebase+push)`);
   } else if (remote === 'behind') {
     hints.push(`Remote is ${REMOTE_LABELS[remote]} — pull with: agenv sync`);
   } else if (remote === 'no-remote' && s.total > 0) {
