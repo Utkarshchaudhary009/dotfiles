@@ -53,7 +53,18 @@ export async function planReconcile(
   const remote = await gitRemoteState(rootDir);
 
   const porcelain = await runProcess(['git', 'status', '--porcelain'], { cwd: rootDir });
-  const workingTreeLines = porcelain.stdout.split('\n').filter(Boolean);
+  // Filter out untracked canonical files (agenv.json, files/, .gitignore,
+  // README.md) — these are part of the manifest and would otherwise be
+  // treated as "working-tree changes" the moment a repo is initialized.
+  const expectedUntracked = ['agenv.json', 'files/', '.gitignore', 'README.md'];
+  const workingTreeLines = porcelain.stdout
+    .split('\n')
+    .filter(Boolean)
+    .filter(line => {
+      const isUntracked = line.startsWith('??');
+      if (!isUntracked) return true;
+      return !expectedUntracked.some(p => line.includes(p));
+    });
   const hasWorkingTreeChanges = workingTreeLines.length > 0;
 
   const conflicts: ConflictFile[] = [];
@@ -69,16 +80,18 @@ export async function planReconcile(
   }
 
   const hasLocalChanges = conflicts.length > 0 || drift.length > 0;
-  const hasRemoteAhead = remote === 'ahead' || remote === 'diverged';
-  const hasRemoteBehind = remote === 'behind' || remote === 'diverged';
+  // "remoteAhead" = remote has commits local does not → local must pull.
+  // "remoteBehind" = local has commits remote does not → local must push.
+  const remoteAhead = remote === 'behind' || remote === 'diverged';
+  const remoteBehind = remote === 'ahead' || remote === 'diverged';
 
   if (remote === 'unknown') {
     return {
       action: 'error',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv status',
@@ -92,8 +105,8 @@ export async function planReconcile(
         action: 'noop',
         remote,
         hasLocalChanges,
-        hasRemoteAhead,
-        hasRemoteBehind,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -104,8 +117,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -121,8 +134,8 @@ export async function planReconcile(
         action: 'diverged-rebase',
         remote,
         hasLocalChanges,
-        hasRemoteAhead,
-        hasRemoteBehind,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -133,8 +146,8 @@ export async function planReconcile(
       action: 'diverged-conflict',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv sync --rebase',
@@ -143,13 +156,13 @@ export async function planReconcile(
   }
 
   // remote === 'in-sync' | 'ahead' | 'behind'
-  if (!hasLocalChanges && !hasWorkingTreeChanges && !hasRemoteAhead && !hasRemoteBehind) {
+  if (!hasLocalChanges && !hasWorkingTreeChanges && !remoteAhead && !remoteBehind) {
     return {
       action: 'noop',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -157,13 +170,13 @@ export async function planReconcile(
     };
   }
 
-  if (hasRemoteAhead && !hasLocalChanges && !hasWorkingTreeChanges) {
+  if (remoteAhead && !hasLocalChanges && !hasWorkingTreeChanges) {
     return {
       action: 'pull',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -171,31 +184,31 @@ export async function planReconcile(
     };
   }
 
-  if (hasRemoteBehind) {
+  if (remoteBehind) {
     return {
       action: hasLocalChanges || hasWorkingTreeChanges ? 'pull-and-push' : 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
       reason: hasLocalChanges
-        ? 'Remote has commits and local has changes — pull then push'
+        ? 'Local has unpushed commits and working tree has changes — pull then push'
         : hasWorkingTreeChanges
-          ? 'Remote has commits and working tree has changes — pull then push'
+          ? 'Local has working tree changes and remote is behind — pull then push'
           : 'Local has unpushed commits',
     };
   }
 
-  if (hasRemoteAhead && hasLocalChanges) {
+  if (remoteAhead && hasLocalChanges) {
     return {
       action: 'pull-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -208,8 +221,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead,
-      hasRemoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -221,8 +234,8 @@ export async function planReconcile(
     action: 'noop',
     remote,
     hasLocalChanges,
-    hasRemoteAhead,
-    hasRemoteBehind,
+    hasRemoteAhead: remoteAhead,
+    hasRemoteBehind: remoteBehind,
     hasWorkingTreeChanges,
     conflicts,
     nextCommand: '',
