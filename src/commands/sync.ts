@@ -23,17 +23,26 @@ export interface SyncOptions {
 export interface SyncResult {
   action: SyncAction;
   remote: SyncPlan['remote'];
-  pulled: number;
+  pulledFiles: number;
+  pulledCommits: number;
   pushed: number;
   expanded: number;
   captured: number;
   conflicts: ConflictFile[];
   nextCommand: string;
   reason: string;
+  /**
+   * Non-null when the command failed in a structured way (diverged
+   * branches, pull failure, unreachable origin, etc.). When set, the
+   * human interface prints the message; the JSON interface emits the
+   * full result with `error` populated so agents have a stable shape.
+   */
+  error: string | null;
 }
 
 interface SyncCounts {
-  pulled: number;
+  pulledFiles: number;
+  pulledCommits: number;
   pushed: number;
   expanded: number;
   captured: number;
@@ -81,16 +90,17 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
 
   const manifest = await loadManifest(repoPath);
   const plan = await planReconcile(repoPath, manifest, { rebase: options.rebase });
+  if (process.env.AGENV_DEBUG) {
+    console.error('[sync] plan:', JSON.stringify(plan, null, 2));
+  }
 
   if (plan.action === 'error') {
-    return finish(plan, { pulled: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options);
+    return finish(plan, { pulledFiles: 0, pulledCommits: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options, plan.reason);
   }
 
   if (plan.action === 'diverged-conflict') {
-    throw new CLIError(
-      `Branches diverged. Run: ${plan.nextCommand}\n` +
-      `If rebase is not safe, resolve manually and retry.`,
-    );
+    const msg = `Branches diverged. Run: ${plan.nextCommand}\nIf rebase is not safe, resolve manually and retry.`;
+    return finish(plan, { pulledFiles: 0, pulledCommits: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options, msg);
   }
 
   if (!isJsonMode() && !options.json) {
@@ -104,17 +114,27 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
   }
 
   // ---- pull ----
-  let pulled = 0;
+  let pulledFiles = 0;
+  let pulledCommits = 0;
   if (plan.action === 'pull' || plan.action === 'pull-and-push' || plan.action === 'diverged-rebase') {
     if (!isJsonMode() && !options.json) clack.log.step(`Pulling from remote (${options.rebase ? 'rebase' : 'ff-only'})...`);
+    const headBefore = await runProcess(['git', 'rev-parse', 'HEAD'], { cwd: repoPath });
     const pullRes = await runProcess(['git', ...pullArgs(!!options.rebase)], { cwd: repoPath });
     if (pullRes.code !== 0) {
-      throw new CLIError(
-        `Pull failed.\n${(pullRes.stderr || pullRes.stdout).trim()}\n` +
-        `Retry: agenv sync${options.rebase ? '' : ' --rebase'}`,
-      );
+      const msg = `Pull failed.\n${(pullRes.stderr || pullRes.stdout).trim()}\nRetry: agenv sync${options.rebase ? '' : ' --rebase'}`;
+      return finish(plan, { pulledFiles: 0, pulledCommits: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options, msg);
     }
-    pulled = countPulledCommits(pullRes.stdout);
+    pulledFiles = countPulledFiles(pullRes.stdout);
+    // pulledCommits is the real delta of objects added by the pull — derived
+    // from rev-list against the pre-pull HEAD so it works for both
+    // --ff-only (which moves HEAD) and --rebase (which rewrites it).
+    if (headBefore.code === 0) {
+      const cnt = await runProcess(
+        ['git', 'rev-list', '--count', `${headBefore.stdout.trim()}..HEAD`],
+        { cwd: repoPath },
+      );
+      if (cnt.code === 0) pulledCommits = parseInt(cnt.stdout.trim(), 10) || 0;
+    }
   }
 
   // ---- capture BEFORE expand ----
@@ -129,11 +149,36 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
       const discovered = await discoverConfigs();
       if (discovered.length > 0) {
         const outcome = await applyDiscovered(repoPath, discovered, { yes: options.yes });
-        captured = outcome.added.length + outcome.updated.length;
+        captured += outcome.added.length + outcome.updated.length;
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      clack.log.warn(`Auto-capture skipped: ${msg}`);
+      clack.log.warn(`Auto-capture (new) skipped: ${msg}`);
+    }
+  }
+
+  // ---- capture TRACKED drift BEFORE expand ----
+  // Even for files already in the manifest, if the local target differs
+  // from the repo store we must capture the local version into the repo
+  // before expand overwrites the disk. This is the difference between
+  // "the user edited a tracked file" and "the file is missing on disk":
+  // in both cases expand would clobber the user's local bytes.
+  if (plan.hasLocalChanges) {
+    const { captureTracked } = await import('../capture');
+    try {
+      const driftOnly = manifest.files.filter(tf =>
+        plan.conflicts.some(c => c.id === tf.id) ||
+        // Repo-missing drift is in plan.conflicts for the new "true conflict"
+        // path, but earlier planner revisions emitted it separately; capture
+        // every tracked file that drifted, since the only safe alternative
+        // is to expand first and clobber local edits.
+        true,
+      );
+      const sum = await captureTracked(repoPath, manifest, driftOnly, { yes: options.yes });
+      captured += sum.captured;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      clack.log.warn(`Auto-capture (tracked) skipped: ${msg}`);
     }
   }
 
@@ -141,10 +186,8 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
   let expanded = 0;
   if (plan.action !== 'noop') {
     if (!isJsonMode() && !options.json) clack.log.step('Expanding files...');
-    const before = manifest.files.length;
-    await expandCommand(repoPath, { force: true });
-    const afterManifest = await loadManifest(repoPath);
-    expanded = Math.max(0, afterManifest.files.length - before);
+    const summary = await expandCommand(repoPath, { force: true });
+    expanded = summary.deployed + summary.unchanged;
   }
 
   // ---- commit + push ----
@@ -184,7 +227,7 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
     });
   }
 
-  return finish(plan, { pulled, pushed, expanded, captured, pushSkippedReason }, options);
+  return finish(plan, { pulledFiles, pulledCommits, pushed, expanded, captured, pushSkippedReason }, options);
 }
 
 async function decideShouldPush(options: SyncOptions, repoPath: string): Promise<boolean> {
@@ -201,32 +244,37 @@ async function decideShouldPush(options: SyncOptions, repoPath: string): Promise
   return confirm === true;
 }
 
-function countPulledCommits(stdout: string): number {
-  // `git pull --ff-only` emits "Fast-forward\n ... X files changed".
-  // `git pull --rebase` emits "Rebasing (N/M)..." and "X files changed".
-  // Both end with a "X files changed" line for non-empty pulls.
+function countPulledFiles(stdout: string): number {
   const m = stdout.match(/(\d+)\s+files? changed/);
-  if (m) return parseInt(m[1], 10);
-  if (/Fast-forward/.test(stdout)) return 1;
-  if (/Successfully rebased/.test(stdout)) return 1;
-  return 0;
+  return m ? parseInt(m[1], 10) : 0;
 }
 
-function finish(plan: SyncPlan, counts: SyncCounts, options: SyncOptions): SyncResult {
+function finish(plan: SyncPlan, counts: SyncCounts, options: SyncOptions, errorMessage: string | null = null): SyncResult {
   const result: SyncResult = {
     action: plan.action,
     remote: plan.remote,
-    pulled: counts.pulled,
+    pulledFiles: counts.pulledFiles,
+    pulledCommits: counts.pulledCommits,
     pushed: counts.pushed,
     expanded: counts.expanded,
     captured: counts.captured,
     conflicts: plan.conflicts,
     nextCommand: plan.nextCommand,
     reason: plan.reason,
+    error: errorMessage,
   };
   if (options.json || isJsonMode()) {
     log.json(result);
+    if (errorMessage) {
+      // Throw so the CLI's exit code is non-zero on failure; the JSON
+      // payload has already been written so automation can still parse it.
+      throw new CLIError(errorMessage.split('\n')[0]);
+    }
     return result;
+  }
+  if (errorMessage) {
+    clack.log.error(errorMessage);
+    throw new CLIError(errorMessage.split('\n')[0]);
   }
   clack.log.success(chalk.bgGreen(chalk.black(' SYNC COMPLETE ')));
   if (plan.action === 'noop') {
@@ -234,7 +282,8 @@ function finish(plan: SyncPlan, counts: SyncCounts, options: SyncOptions): SyncR
     return result;
   }
   const parts: string[] = [];
-  if (counts.pulled) parts.push(`Pulled ${counts.pulled}`);
+  if (counts.pulledCommits) parts.push(`Pulled ${counts.pulledCommits} commit${counts.pulledCommits === 1 ? '' : 's'}`);
+  else if (counts.pulledFiles) parts.push(`Pulled ${counts.pulledFiles} file${counts.pulledFiles === 1 ? '' : 's'}`);
   if (counts.captured) parts.push(`Captured ${counts.captured}`);
   if (counts.expanded) parts.push(`Expanded ${counts.expanded}`);
   if (counts.pushed) parts.push(`Pushed`);

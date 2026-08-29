@@ -26,14 +26,18 @@ export interface SyncPlan {
   hasLocalChanges: boolean;
   /**
    * True when the remote has commits the local branch does not — i.e. a
-   * pull is required to become consistent.
+   * pull is required to become consistent. The name `remoteIsAhead` is
+   * read as a statement about the remote, not a statement about the
+   * local branch. Mirrors `gitRemoteState`'s "behind" classification
+   * (which describes local's position relative to remote).
    */
-  hasRemoteAhead: boolean;
+  remoteIsAhead: boolean;
   /**
    * True when the local branch has commits the remote does not — i.e. a
-   * push is required to become consistent.
+   * push is required to become consistent. Mirrors `gitRemoteState`'s
+   * "ahead" classification.
    */
-  hasRemoteBehind: boolean;
+  remoteIsBehind: boolean;
   hasWorkingTreeChanges: boolean;
   conflicts: ConflictFile[];
   nextCommand: string;
@@ -56,15 +60,21 @@ async function hasOrigin(rootDir: string): Promise<boolean> {
  * pushed (or a flaky network dropped the first attempt) we give it a
  * moment. The user's view of "behind / diverged" must never be stale by
  * more than a fraction of a second.
+ *
+ * Returns true if at least one fetch succeeded, false if all attempts
+ * failed. A failure here MUST be honored by the caller — classifying
+ * against stale `origin/*` refs after a failed fetch would silently
+ * report an offline repository as "in-sync" with the server.
  */
-async function fetchOriginWithRetry(rootDir: string, attempts = 3): Promise<void> {
+async function fetchOriginWithRetry(rootDir: string, attempts = 3): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     const r = await runProcess(['git', 'fetch', '--quiet', 'origin'], { cwd: rootDir });
-    if (r.code === 0) return;
+    if (r.code === 0) return true;
     if (i < attempts - 1) {
       await new Promise(res => setTimeout(res, 50 * (i + 1)));
     }
   }
+  return false;
 }
 
 export async function planReconcile(
@@ -73,7 +83,25 @@ export async function planReconcile(
   options: ReconcileOptions = {},
 ): Promise<SyncPlan> {
   if (await hasOrigin(rootDir)) {
-    await fetchOriginWithRetry(rootDir);
+    const fetched = await fetchOriginWithRetry(rootDir);
+    // If every fetch attempt failed we must not classify against stale
+    // origin/* refs — the user expects an "unknown" / error state when
+    // the network or auth is broken. Force the remote classification to
+    // 'unknown' so the planner returns action: 'error' with a recovery
+    // command, exactly as if gitRemoteState had surfaced it directly.
+    if (!fetched) {
+      return {
+        action: 'error',
+        remote: 'unknown',
+        hasLocalChanges: false,
+        remoteIsAhead: false,
+        remoteIsBehind: false,
+        hasWorkingTreeChanges: false,
+        conflicts: [],
+        nextCommand: 'agenv status',
+        reason: 'Could not reach origin (network, auth, or repository missing)',
+      };
+    }
   }
   const remote = await gitRemoteState(rootDir);
 
@@ -90,22 +118,29 @@ export async function planReconcile(
     .filter(Boolean)
     .filter(line => {
       if (!line.startsWith('??')) return true;
-      const path = line.slice(3).trim();
-      if (expectedUntracked.has(path)) return false;
+      const entryPath = line.slice(3).trim();
+      if (expectedUntracked.has(entryPath)) return false;
       // Treat any file inside files/ as canonical (it is a tracked-files dir).
-      if (path.startsWith('files/')) return false;
+      if (entryPath.startsWith('files/')) return false;
       return true;
     });
   const hasWorkingTreeChanges = workingTreeLines.length > 0;
 
+  // Classify a real file-level conflict: the user's local target differs
+  // from BOTH the repo store AND the incoming remote tree. The remote
+  // comparison uses `git show origin/<branch>:<rel>` against the local
+  // file's hash. A file that differs from the repo store but matches the
+  // incoming remote is NOT a conflict — pull will replace it cleanly.
   const conflicts: ConflictFile[] = [];
   const drift: ConflictFile[] = [];
   for (const tf of manifest.files) {
     if (!manifest.config.categories.some(c => c.id === tf.category)) continue;
     const state = await trackedFileState(rootDir, manifest, tf);
-    if (state === 'conflict') {
+    if (state !== 'conflict' && state !== 'repo-missing') continue;
+    const isRealConflict = await isTrueRemoteConflict(rootDir, manifest, tf);
+    if (isRealConflict) {
       conflicts.push({ id: tf.id, targetRel: tf.targetRel, reason: 'local-and-remote-changed' });
-    } else if (state === 'repo-missing') {
+    } else {
       drift.push({ id: tf.id, targetRel: tf.targetRel, reason: 'repo-missing' });
     }
   }
@@ -121,8 +156,8 @@ export async function planReconcile(
       action: 'error',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv status',
@@ -136,8 +171,8 @@ export async function planReconcile(
         action: 'noop',
         remote,
         hasLocalChanges,
-        hasRemoteAhead: remoteAhead,
-        hasRemoteBehind: remoteBehind,
+        remoteIsAhead: remoteAhead,
+        remoteIsBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -148,8 +183,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -165,8 +200,8 @@ export async function planReconcile(
         action: 'diverged-rebase',
         remote,
         hasLocalChanges,
-        hasRemoteAhead: remoteAhead,
-        hasRemoteBehind: remoteBehind,
+        remoteIsAhead: remoteAhead,
+        remoteIsBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -177,8 +212,8 @@ export async function planReconcile(
       action: 'diverged-conflict',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv sync --rebase',
@@ -192,8 +227,8 @@ export async function planReconcile(
       action: 'noop',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -206,8 +241,8 @@ export async function planReconcile(
       action: 'pull',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -223,8 +258,8 @@ export async function planReconcile(
       action: 'pull',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -243,8 +278,8 @@ export async function planReconcile(
         action: 'pull-and-push',
         remote,
         hasLocalChanges,
-        hasRemoteAhead: remoteAhead,
-        hasRemoteBehind: remoteBehind,
+        remoteIsAhead: remoteAhead,
+        remoteIsBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -255,8 +290,8 @@ export async function planReconcile(
       action: hasWorkingTreeChanges ? 'pull' : 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -271,8 +306,8 @@ export async function planReconcile(
       action: 'pull-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -285,8 +320,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      hasRemoteAhead: remoteAhead,
-      hasRemoteBehind: remoteBehind,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -294,12 +329,30 @@ export async function planReconcile(
     };
   }
 
+  // Tracked file drift was detected but the working tree itself is
+  // already clean (e.g. the user ran `agenv capture` first, or a previous
+  // step already wrote the drift into the repo store). We must still
+  // commit and push it.
+  if (hasLocalChanges) {
+    return {
+      action: 'capture-and-push',
+      remote,
+      hasLocalChanges,
+      remoteIsAhead: remoteAhead,
+      remoteIsBehind: remoteBehind,
+      hasWorkingTreeChanges,
+      conflicts,
+      nextCommand: '',
+      reason: 'Tracked file drift captured; commit and push',
+    };
+  }
+
   return {
     action: 'noop',
     remote,
     hasLocalChanges,
-    hasRemoteAhead: remoteAhead,
-    hasRemoteBehind: remoteBehind,
+    remoteIsAhead: remoteAhead,
+    remoteIsBehind: remoteBehind,
     hasWorkingTreeChanges,
     conflicts,
     nextCommand: '',
@@ -310,6 +363,62 @@ export async function planReconcile(
 export function isInsideRepo(rootDir: string, filePath: string): boolean {
   const rel = path.relative(rootDir, filePath);
   return !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * Determine whether a tracked file's local drift is a true
+ * local-vs-remote conflict or just ordinary local drift.
+ *
+ * Returns true when the local target differs from the repo store AND
+ * also differs from the incoming remote tree (i.e. both sides have
+ * changed the file). Returns false when the local target matches the
+ * incoming remote (pull will replace it cleanly) or when no upstream
+ * comparison is possible (no origin, no upstream, or path missing
+ * remotely). Best-effort: any git error during the comparison returns
+ * false so the planner does not block on read-only Git operations.
+ */
+async function isTrueRemoteConflict(
+  rootDir: string,
+  manifest: Manifest,
+  tf: { id: string; category: string; targetRel: string },
+): Promise<boolean> {
+  // Only meaningful when we have a fetchable origin with an upstream.
+  const upstreamRes = await runProcess(
+    ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    { cwd: rootDir },
+  );
+  if (upstreamRes.code !== 0) return false;
+  const upstream = upstreamRes.stdout.trim();
+
+  // Hash the local target file as it lives on disk right now.
+  const cat = manifest.config.categories.find(c => c.id === tf.category);
+  if (!cat) return false;
+  const { targetPathFor, expandHome } = await import('./platform');
+  const targetPath = targetPathFor(cat.targetRoot, tf.targetRel);
+  const expanded = expandHome(targetPath);
+  let localHash: string;
+  try {
+    localHash = await (await import('./fs')).fileHash(expanded);
+  } catch {
+    return false; // local file does not exist or unreadable
+  }
+
+  // Hash the remote's view of the same path. We avoid `git show
+  // <upstream>:<path>` writing to a temp file by piping the file bytes
+  // through sha256sum, which avoids any shell-true / path-traversal
+  // surface. If the remote has no such path the command exits non-zero
+  // and we return false (no conflict can be asserted).
+  const remoteHashRes = await runProcess(
+    ['git', 'show', `${upstream}:${tf.targetRel}`],
+    { cwd: rootDir },
+  );
+  if (remoteHashRes.code !== 0) return false;
+  const remoteHash = (await import('node:crypto'))
+    .createHash('sha256')
+    .update(remoteHashRes.stdout)
+    .digest('hex');
+
+  return localHash !== remoteHash;
 }
 
 export async function stageCanonicalFiles(rootDir: string): Promise<string[]> {

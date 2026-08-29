@@ -49,10 +49,12 @@ export async function expandCommand(target: string | undefined, options: { dryRu
 
   log.info(`Expanding environment from ${found.rootDir}...`);
   const summary = await deployFiles(found.rootDir, manifest, options);
-  
+
   log.deploySummary(summary);
 
   if (summary.failed > 0 && !options.dryRun) {
     throw new CLIError('Deploy completed with errors.');
   }
+
+  return summary;
 }
