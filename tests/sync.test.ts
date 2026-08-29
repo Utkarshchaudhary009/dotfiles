@@ -140,26 +140,10 @@ describe('Sync and Publish CLI Commands', () => {
     const targetFile = path.join(tempHome, '.config', 'opencode', 'opencode.json');
     const localEdit = JSON.stringify({ theme: 'light', note: 'edited-locally' });
     await fs.writeFile(targetFile, localEdit);
-    const beforeSync = await fs.readFile(targetFile, 'utf8');
-    console.log('DRIFT BEFORE SYNC local:', beforeSync);
-    const repoStorePath = path.join(repoPath, 'files', 'opencode', 'opencode.json');
-    try {
-      const repoStore = await fs.readFile(repoStorePath, 'utf8');
-      console.log('DRIFT BEFORE SYNC repo store:', repoStore);
-    } catch (e) {
-      console.log('DRIFT BEFORE SYNC repo store: <missing>', e);
-    }
 
     // Sync with --push --yes from a different cwd
-    const syncRes = await runAgenv(['sync', 'drifttest', '--push', '--yes', '--json'], otherCwd, { ...env, AGENV_DEBUG: '1' });
-    console.log('DRIFT SYNC STDOUT:', syncRes.stdout);
-    console.log('DRIFT SYNC STDERR:', syncRes.stderr);
+    const syncRes = await runAgenv(['sync', 'drifttest', '--push', '--yes', '--json'], otherCwd, env);
     if (syncRes.code !== 0) throw new Error('sync failed: ' + syncRes.stderr + '\nstdout: ' + syncRes.stdout);
-    // Direct planner call to see what it thinks.
-    const { planReconcile } = await import('../src/reconcile');
-    const { loadManifest } = await import('../src/manifest');
-    const plan = await planReconcile(repoPath, await loadManifest(repoPath), { rebase: false });
-    console.log('DRIFT PLAN:', JSON.stringify(plan, null, 2));
 
     // The local edit must still be on disk after sync.
     const onDisk = await fs.readFile(targetFile, 'utf8');
@@ -167,15 +151,7 @@ describe('Sync and Publish CLI Commands', () => {
 
     // The local edit must also have reached the bare origin. The repo
     // store path is files/<category>/<targetRel>, not files/<targetRel>.
-    const repoStoreFile = path.join(repoPath, 'files', 'opencode', 'opencode.json');
-    const repoStoreContents = await fs.readFile(repoStoreFile, 'utf8');
-    console.log('DRIFT REPO STORE AFTER SYNC:', repoStoreContents);
     const showRes = await runProcess(['git', '--git-dir=' + bareRepo, 'show', 'HEAD:files/opencode/opencode.json']);
-    console.log('DRIFT ORIGIN HEAD:', showRes.stdout);
-    const logRes = await runProcess(['git', '--git-dir=' + bareRepo, 'log', '--oneline', '--all']);
-    console.log('DRIFT ORIGIN LOG:', logRes.stdout);
-    const branchRes = await runProcess(['git', '--git-dir=' + bareRepo, 'branch', '-a']);
-    console.log('DRIFT ORIGIN BRANCHES:', branchRes.stdout);
     expect(showRes.stdout).toContain('edited-locally');
   }, 120000);
 });

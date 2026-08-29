@@ -90,9 +90,6 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
 
   const manifest = await loadManifest(repoPath);
   const plan = await planReconcile(repoPath, manifest, { rebase: options.rebase });
-  if (process.env.AGENV_DEBUG) {
-    console.error('[sync] plan:', JSON.stringify(plan, null, 2));
-  }
 
   if (plan.action === 'error') {
     return finish(plan, { pulledFiles: 0, pulledCommits: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options, plan.reason);
