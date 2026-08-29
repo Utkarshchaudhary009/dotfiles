@@ -162,11 +162,13 @@ program
 
 program
   .command('sync [target]')
-  .description('Seamless 2-way sync: pull -> expand -> push')
+  .description('Reconcile local, repository, and remote into a single consistent state')
   .option('--push', 'Push local changes after committing')
   .option('--no-push', 'Do not push local changes')
   .option('--no-scan', 'Skip auto-capture of newly discoverable files')
+  .option('--rebase', 'Rebase local commits onto remote when branches have diverged')
   .option('--yes', 'Skip interactive prompts')
+  .option('--json', 'Emit a structured JSON SyncResult instead of human output')
   .action(wrap(syncCommand));
 
 program
