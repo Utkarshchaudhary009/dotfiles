@@ -109,7 +109,7 @@ describe('Sync and Publish CLI Commands', () => {
     const syncNoPushRes = await runAgenv(['sync', 'testenv', '--no-push'], otherCwd, env);
     if (syncNoPushRes.code !== 0) console.log('SYNC NO PUSH ERROR:', syncNoPushRes.stderr, syncNoPushRes.stdout);
     expect(syncNoPushRes.code).toBe(0);
-    expect(syncNoPushRes.stdout).toContain('PUSH skipped');
+    expect(syncNoPushRes.stdout).toContain('Push skipped');
     
     const logRes2 = await runProcess(['git', '--git-dir=' + bareRepo, 'log', '--oneline']);
     expect(logRes2.stdout.split('\n').length).toBe(logRes.stdout.split('\n').length); // No new commit in bare
