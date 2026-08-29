@@ -65,14 +65,17 @@ agenv status https://github.com/myuser/work-env
 ## Keeping in Sync (`agenv sync`)
 
 The `agenv sync` command acts as a unified updater. Its execution flow is:
-1. **Pull:** Runs `git pull --ff-only` (default) to bring down remote changes. Pass `--rebase` to `agenv sync` to rebase local commits onto the remote instead when branches have diverged.
-2. **Expand:** Deploys tracked files from the repository to your system, decrypting if necessary.
-3. **Push:** Checks for local changes. If the `--push` flag is provided, it commits and pushes local modifications back to the remote. If not, it will interactively ask you for confirmation, or simply report the drift if in a non-interactive environment.
+1. **Plan:** Compares local tracked-file drift, canonical repository state, and remote Git state. Clean environments exit immediately as a no-op.
+2. **Pull:** Runs `git pull --ff-only` (default) to bring down remote changes. Pass `--rebase` to `agenv sync` to rebase local commits onto the remote instead when branches have diverged.
+3. **Capture:** Captures safe local tracked-file drift into the canonical `agenv.json` / `files/` store before expand can overwrite local edits.
+4. **Expand:** Deploys tracked files from the repository to your system, decrypting if necessary. Same-file local/remote conflicts stop here before any overwrite and report conflict IDs.
+5. **Push:** If `--push` is provided, commits and pushes only canonical environment files (`agenv.json`, `files/`, `.gitignore`, `README.md`). If not, it interactively asks for confirmation, or reports the skipped push in non-interactive mode.
 
 **Sync Options:**
 - `agenv sync [target] [--push]` to automatically commit and push local changes.
 - `agenv sync [target] [--no-push]` to prevent pushing local changes (useful for strictly pulling).
 - `agenv sync [target] [--rebase]` to rebase local commits onto the remote before pushing (default pull strategy is `git pull --ff-only`).
+- `agenv sync [target] [--json]` to emit the same state for agents/scripts, including `status`, `hasRemoteAhead`, `hasRemoteBehind`, `conflicts`, and `nextCommand`.
 
 ## Example: Working with Two Environments
 

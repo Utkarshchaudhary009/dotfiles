@@ -87,25 +87,25 @@ Phases are ordered. If scope or architecture changes, update this plan before or
 
 ### Tasks
 
-- [ ] 3.1 Introduce a shared `reconcile` planner that maps `(local, repo, remote)` state to one of: `noop`, `pull-only`, `capture-and-push`, `pull-and-push`, `diverged-rebase`, `diverged-conflict`, `error`. Single source of truth for what sync should do.
-- [ ] 3.2 Add `--rebase` option to `agenv sync` and use `git pull --rebase` when set; keep `--ff-only` as the safe default. Surface the chosen strategy in human and structured output.
-- [ ] 3.3 Detect file-level conflicts (same tracked file changed both locally and in the incoming remote tree) before any commit/push, **and refuse to overwrite local edits by gating `expand` on `plan.conflicts.length === 0`** — if any conflict exists, surface the conflict IDs and the recovery command instead of expanding. Emit a clear recovery command.
-- [ ] 3.4 Add a no-change fast path: when local, repository, and remote are all clean, `agenv sync` returns immediately with a "no-op" result and zero Git operations beyond a `rev-parse` check.
-- [ ] 3.5 Surface a structured `SyncResult` (status, actions taken, conflicts, recommended next command) and accept `--json` on `agenv sync` so agents and scripts can act on the same state the user sees. **Every JSON field name MUST match its semantic** — `hasRemoteAhead` means "remote has commits local does not" (not the opposite). A unit test pins the contract: `plan.hasRemoteAhead === true` whenever a pull is required.
-- [ ] 3.6 Make the commit message and added-file selection explicit: only commit the manifest and tracked-file store; never auto-add unrelated working-tree changes.
-- [ ] 3.7 Make retry safe: after a failed pull (network, auth, non-fast-forward), leave the working tree untouched and return a recoverable error with the exact next command (`agenv pull --rebase`, `agenv status`, etc.).
-- [ ] 3.8 Hide the Git choreography: human output should read as "Synced", "Pulled N changes", "Pushed N changes", "1 conflict — agenv resolve <id>", not as `git pull --ff-only` and `git push -u origin HEAD`.
+- [x] 3.1 Introduce a shared `reconcile` planner that maps `(local, repo, remote)` state to one of: `noop`, `pull-only`, `capture-and-push`, `pull-and-push`, `diverged-rebase`, `diverged-conflict`, `error`. Single source of truth for what sync should do.
+- [x] 3.2 Add `--rebase` option to `agenv sync` and use `git pull --rebase` when set; keep `--ff-only` as the safe default. Surface the chosen strategy in human and structured output.
+- [x] 3.3 Detect file-level conflicts (same tracked file changed both locally and in the incoming remote tree) before any commit/push, **and refuse to overwrite local edits by gating `expand` on `plan.conflicts.length === 0`** — if any conflict exists, surface the conflict IDs and the recovery command instead of expanding. Emit a clear recovery command.
+- [x] 3.4 Add a no-change fast path: when local, repository, and remote are all clean, `agenv sync` returns immediately with a "no-op" result and zero Git operations beyond a `rev-parse` check.
+- [x] 3.5 Surface a structured `SyncResult` (status, actions taken, conflicts, recommended next command) and accept `--json` on `agenv sync` so agents and scripts can act on the same state the user sees. **Every JSON field name MUST match its semantic** — `hasRemoteAhead` means "remote has commits local does not" (not the opposite). A unit test pins the contract: `plan.hasRemoteAhead === true` whenever a pull is required.
+- [x] 3.6 Make the commit message and added-file selection explicit: only commit the manifest and tracked-file store; never auto-add unrelated working-tree changes.
+- [x] 3.7 Make retry safe: after a failed pull (network, auth, non-fast-forward), leave the working tree untouched and return a recoverable error with the exact next command (`agenv pull --rebase`, `agenv status`, etc.).
+- [x] 3.8 Hide the Git choreography: human output should read as "Synced", "Pulled N changes", "Pushed N changes", "1 conflict — agenv status", not as `git pull --ff-only` and `git push -u origin HEAD`.
 
 ### Verification
 
-- [ ] No-change sync is a no-op (zero commit/push operations, no network calls).
-- [ ] Local-only changes are captured and pushed safely.
-- [ ] Remote-only changes are pulled and expanded safely.
-- [ ] Non-overlapping local + remote changes reconcile automatically (rebase when enabled, ff-only otherwise).
-- [ ] Diverged branches produce an actionable error and recommended next command, never silent data loss.
-- [ ] File-level conflicts on a tracked file are detected and surfaced.
-- [ ] `--json` output schema is stable and matches the human summary.
-- [ ] Real Git-backed end-to-end tests cover the major reconciliation paths (no-op, local-only, remote-only, diverged, conflict).
+- [x] No-change sync is a no-op (zero commit/push operations, no network calls).
+- [x] Local-only changes are captured and pushed safely.
+- [x] Remote-only changes are pulled and expanded safely.
+- [x] Non-overlapping local + remote changes reconcile automatically (rebase when enabled, ff-only otherwise).
+- [x] Diverged branches produce an actionable error and recommended next command, never silent data loss.
+- [x] File-level conflicts on a tracked file are detected and surfaced.
+- [x] `--json` output schema is stable and matches the human summary.
+- [x] Real Git-backed end-to-end tests cover the major reconciliation paths (no-op, local-only, remote-only, diverged, conflict).
 
 ---
 
