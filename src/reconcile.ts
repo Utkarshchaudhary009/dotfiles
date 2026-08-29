@@ -42,15 +42,37 @@ async function hasOrigin(rootDir: string): Promise<boolean> {
   return r.code === 0 && r.stdout.trim().length > 0;
 }
 
+/**
+ * Best-effort `git fetch origin` that retries briefly. The planner must
+ * observe the latest server state, so when a sibling process has just
+ * pushed (or a flaky network dropped the first attempt) we give it a
+ * moment. The user's view of "behind / diverged" must never be stale by
+ * more than a fraction of a second.
+ */
+async function fetchOriginWithRetry(rootDir: string, attempts = 3): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    const r = await runProcess(['git', 'fetch', '--quiet', 'origin'], { cwd: rootDir });
+    if (r.code === 0) return;
+    if (i < attempts - 1) {
+      await new Promise(res => setTimeout(res, 50 * (i + 1)));
+    }
+  }
+}
+
 export async function planReconcile(
   rootDir: string,
   manifest: Manifest,
   options: ReconcileOptions = {},
 ): Promise<SyncPlan> {
   if (await hasOrigin(rootDir)) {
-    await runProcess(['git', 'fetch', '--quiet', 'origin'], { cwd: rootDir }).catch(() => undefined);
+    await fetchOriginWithRetry(rootDir);
   }
   const remote = await gitRemoteState(rootDir);
+  if (process.env.AGENV_DEBUG) {
+    const ahead = await runProcess(['git', 'rev-list', '--count', 'HEAD..@{u}'], { cwd: rootDir });
+    const behind = await runProcess(['git', 'rev-list', '--count', '@{u}..HEAD'], { cwd: rootDir });
+    console.error('[planner] remote=', remote, 'ahead=', ahead.stdout.trim(), 'behind=', behind.stdout.trim());
+  }
 
   const porcelain = await runProcess(['git', 'status', '--porcelain'], { cwd: rootDir });
   // Filter out untracked canonical files (agenv.json, files/, .gitignore,
