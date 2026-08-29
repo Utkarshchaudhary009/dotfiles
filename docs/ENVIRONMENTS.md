@@ -65,13 +65,14 @@ agenv status https://github.com/myuser/work-env
 ## Keeping in Sync (`agenv sync`)
 
 The `agenv sync` command acts as a unified updater. Its execution flow is:
-1. **Pull:** Runs `git pull --ff-only` to bring down remote changes.
+1. **Pull:** Runs `git pull --ff-only` (default) to bring down remote changes. Pass `--rebase` to `agenv sync` to rebase local commits onto the remote instead when branches have diverged.
 2. **Expand:** Deploys tracked files from the repository to your system, decrypting if necessary.
 3. **Push:** Checks for local changes. If the `--push` flag is provided, it commits and pushes local modifications back to the remote. If not, it will interactively ask you for confirmation, or simply report the drift if in a non-interactive environment.
 
 **Sync Options:**
 - `agenv sync [target] [--push]` to automatically commit and push local changes.
 - `agenv sync [target] [--no-push]` to prevent pushing local changes (useful for strictly pulling).
+- `agenv sync [target] [--rebase]` to rebase local commits onto the remote before pushing (default pull strategy is `git pull --ff-only`).
 
 ## Example: Working with Two Environments
 

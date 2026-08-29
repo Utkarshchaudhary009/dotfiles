@@ -43,7 +43,7 @@ agenv init
 ```
 
 ### 2. Publish
-Publish your environment to GitHub. If a repository with the same name already exists, you will be prompted to attach to it or create a new one (or use `--attach`/`--new`).
+Publish your environment to GitHub. If a repository with the same name already exists, you will be prompted to attach to it or create a new one (or skip the prompt with `--attach`/`--new --name <other>`).
 ```bash
 agenv publish
 ```
@@ -132,7 +132,7 @@ Found 12 matching files across 4 categories.
 | `agenv expand` | Deploy tracked files from the repo to your home directory | `[target]`, `--dry-run`, `--force`, `--yes` |
 | `agenv update` | Pull latest changes and expand | `[target]` |
 | `agenv push` | Commit and push changes back to the remote repository | `-m, --message <msg>` (default: "Update agenv environment") |
-| `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--no-scan`, `--yes` |
+| `agenv sync` | Pull remote changes, expand, and push local modifications back | `[target]`, `--push`, `--no-push`, `--no-scan`, `--rebase`, `--yes`, `--json` |
 | `agenv export` | Bundle env to portable `.tar.gz` archive (no git needed) | `--out <path>` |
 | `agenv import` | Restore an exported environment tarball | `<file>`, `--dir <path>` |
 | `agenv status` | Compare repo vs disk state (new/modified/missing) | `[target]`, `--json` |

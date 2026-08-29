@@ -70,7 +70,8 @@ agenv publish
 - `--name <repoName>`: Specify a custom repository name.
 - `--remote <url>`: Bypass prompt and use this exact Git remote URL.
 - `--attach`: Attach to an existing repository if one with the same name already exists.
-- `--new`: Create a new repository even if one with the same name exists.
+- `--new`: Create a new repository. If the default name is taken, combine with `--name <other>` (never silently attaches).
+- `--dir <path>`: Directory to publish (default: cwd).
 - `--yes`: Accept defaults automatically.
 
 **Example Output:**
@@ -141,13 +142,13 @@ Keep your environments in sync across multiple machines with a simple set of com
   ```bash
   agenv sync [name] [--push]
   ```
-  *(Without `--push`, the CLI will prompt you interactively before pushing your local changes).*
+  *(Without `--push`, the CLI will prompt you interactively before pushing your local changes. If your branches have diverged, add `--rebase` to rebase local commits onto the remote; the default pull strategy is `git pull --ff-only`).*
 
 **Handling Repo Name Collisions During Publish:**
 If you run `agenv publish` and a remote repository with the same name already exists on your GitHub account, the CLI will prompt you:
 - **Attach**: Link your local environment to the existing remote repository.
 - **New**: Create a new repository with a different name.
-You can bypass the prompt using the `--attach` or `--new` flags.
+You can bypass the prompt using the `--attach` flag, or `--new --name <other>` to create under a different name.
 
 ---
 

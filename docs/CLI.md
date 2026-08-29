@@ -41,7 +41,7 @@ agenv init --yes
 | `--name <repoName>`| The name of the GitHub repository to create. |
 | `--remote <url>` | Skips creation and directly sets this Git remote URL. |
 | `--attach` | If a repository with the same name exists, automatically attach to it. |
-| `--new` | If a repository with the same name exists, create a new one with a different name. |
+| `--new` | Create a new repository. If the default name is taken, combine with `--name <other>` — `--new` never silently attaches. |
 | `--yes` | Bypasses interactive prompts and accepts default behavior. |
 | `--dir <path>` | Directory to publish (default: cwd). |
 
@@ -226,7 +226,7 @@ agenv push -m "Add custom SSH config"
 
 ## `agenv sync [target]`
 
-**Purpose:** A unified command to keep environments fully synchronized. It pulls remote changes via `--ff-only`, expands them to your local system, then checks for local changes. With `--push`, it commits and pushes local modifications back to the remote. Without `--push`, it interactively prompts you or skips the push step.
+**Purpose:** A unified command to keep environments fully synchronized. It pulls remote changes (fast-forward by default, or rebase with `--rebase`), expands them to your local system, then checks for local changes. With `--push`, it commits and pushes local modifications back to the remote. Without `--push`, it interactively prompts you or skips the push step.
 
 **Options:**
 | Option | Description |
@@ -234,7 +234,9 @@ agenv push -m "Add custom SSH config"
 | `--push` | Commit and push local changes to the remote. |
 | `--no-push` | Do not push local changes (skip the push step entirely). |
 | `--no-scan` | Skip auto-capture of newly discoverable files. |
+| `--rebase` | Rebase local commits onto the remote when branches have diverged (default is `git pull --ff-only`). |
 | `--yes` | Skip interactive prompts. |
+| `--json` | Emit a structured JSON `SyncResult` on stdout instead of human output. |
 
 **Usage Examples:**
 ```bash
@@ -243,6 +245,9 @@ agenv sync
 
 # Sync a specific environment and auto-push local changes
 agenv sync work --push
+
+# Rebase local commits onto the remote instead of pulling with --ff-only
+agenv sync --rebase --push
 ```
 
 ---
