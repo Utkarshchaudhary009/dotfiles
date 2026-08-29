@@ -68,11 +68,6 @@ export async function planReconcile(
     await fetchOriginWithRetry(rootDir);
   }
   const remote = await gitRemoteState(rootDir);
-  if (process.env.AGENV_DEBUG) {
-    const ahead = await runProcess(['git', 'rev-list', '--count', 'HEAD..@{u}'], { cwd: rootDir });
-    const behind = await runProcess(['git', 'rev-list', '--count', '@{u}..HEAD'], { cwd: rootDir });
-    console.error('[planner] remote=', remote, 'ahead=', ahead.stdout.trim(), 'behind=', behind.stdout.trim());
-  }
 
   const porcelain = await runProcess(['git', 'status', '--porcelain'], { cwd: rootDir });
   // Filter out untracked canonical files (agenv.json, files/, .gitignore,
@@ -203,6 +198,23 @@ export async function planReconcile(
       conflicts,
       nextCommand: '',
       reason: 'Remote has new commits to pull',
+    };
+  }
+
+  // Remote has commits and the working tree is dirty (untracked files).
+  // Pull first so we don't lose remote commits; the executor will not
+  // auto-commit arbitrary untracked files anyway.
+  if (remoteAhead && hasWorkingTreeChanges && !hasLocalChanges) {
+    return {
+      action: 'pull',
+      remote,
+      hasLocalChanges,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
+      hasWorkingTreeChanges,
+      conflicts,
+      nextCommand: '',
+      reason: 'Remote has commits and working tree is dirty — pull, leave working tree alone',
     };
   }
 
