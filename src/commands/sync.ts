@@ -45,6 +45,10 @@ function pullArgs(rebase: boolean): string[] {
 }
 
 async function commitIfNeeded(repoPath: string, message: string): Promise<{ committed: boolean; staged: string[] }> {
+  // Clear any pre-staged entries so a sync commit only ever touches the
+  // canonical agenv state. Without this, anything the user (or another
+  // tool) staged before sync ran would be silently included.
+  await runProcess(['git', 'reset', '--', '.'], { cwd: repoPath });
   const staged = await stageCanonicalFiles(repoPath);
   for (const f of staged) {
     await runProcess(['git', 'add', '--', f], { cwd: repoPath });
@@ -64,8 +68,18 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
   const repoPath = resolved.path;
 
   await requireAgenvRepo(repoPath);
-  const manifest = await loadManifest(repoPath);
 
+  // If the registry knows a URL for this environment but git has no origin
+  // yet, register it before planning. Without this, sync would skip the
+  // pull/push entirely even though the user clearly intended a remote.
+  if (resolved.url) {
+    const existing = await runProcess(['git', 'remote', 'get-url', 'origin'], { cwd: repoPath });
+    if (existing.code !== 0 || !existing.stdout.trim()) {
+      await runProcess(['git', 'remote', 'add', 'origin', resolved.url], { cwd: repoPath });
+    }
+  }
+
+  const manifest = await loadManifest(repoPath);
   const plan = await planReconcile(repoPath, manifest, { rebase: options.rebase });
 
   if (plan.action === 'error') {
@@ -103,7 +117,11 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
     pulled = countPulledCommits(pullRes.stdout);
   }
 
-  // ---- auto-capture ----
+  // ---- capture BEFORE expand ----
+  // Auto-capture must run before expand so that any newly-discovered
+  // tracked file is read from disk into the repo before we overwrite
+  // the disk with the repo copy. Otherwise `expand --force` would clobber
+  // the user's local edits.
   let captured = 0;
   if (options.scan !== false && (plan.action === 'pull-and-push' || plan.action === 'capture-and-push' || plan.action === 'diverged-rebase')) {
     const { discoverConfigs, applyDiscovered } = await import('./scan');
@@ -184,9 +202,14 @@ async function decideShouldPush(options: SyncOptions, repoPath: string): Promise
 }
 
 function countPulledCommits(stdout: string): number {
+  // `git pull --ff-only` emits "Fast-forward\n ... X files changed".
+  // `git pull --rebase` emits "Rebasing (N/M)..." and "X files changed".
+  // Both end with a "X files changed" line for non-empty pulls.
   const m = stdout.match(/(\d+)\s+files? changed/);
   if (m) return parseInt(m[1], 10);
-  return /Fast-forward/.test(stdout) ? 1 : 0;
+  if (/Fast-forward/.test(stdout)) return 1;
+  if (/Successfully rebased/.test(stdout)) return 1;
+  return 0;
 }
 
 function finish(plan: SyncPlan, counts: SyncCounts, options: SyncOptions): SyncResult {

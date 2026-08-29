@@ -24,7 +24,15 @@ export interface SyncPlan {
   action: SyncAction;
   remote: RemoteState;
   hasLocalChanges: boolean;
+  /**
+   * True when the remote has commits the local branch does not — i.e. a
+   * pull is required to become consistent.
+   */
   hasRemoteAhead: boolean;
+  /**
+   * True when the local branch has commits the remote does not — i.e. a
+   * push is required to become consistent.
+   */
   hasRemoteBehind: boolean;
   hasWorkingTreeChanges: boolean;
   conflicts: ConflictFile[];
@@ -73,14 +81,20 @@ export async function planReconcile(
   // Filter out untracked canonical files (agenv.json, files/, .gitignore,
   // README.md) — these are part of the manifest and would otherwise be
   // treated as "working-tree changes" the moment a repo is initialized.
-  const expectedUntracked = ['agenv.json', 'files/', '.gitignore', 'README.md'];
+  // Porcelain v1 lines look like '?? <path>' for untracked entries; the
+  // path may contain spaces. Match by whole path, not substring, so a
+  // file like 'myfiles/agenv.json.bak' does not collide.
+  const expectedUntracked = new Set(['agenv.json', 'files/', '.gitignore', 'README.md']);
   const workingTreeLines = porcelain.stdout
     .split('\n')
     .filter(Boolean)
     .filter(line => {
-      const isUntracked = line.startsWith('??');
-      if (!isUntracked) return true;
-      return !expectedUntracked.some(p => line.includes(p));
+      if (!line.startsWith('??')) return true;
+      const path = line.slice(3).trim();
+      if (expectedUntracked.has(path)) return false;
+      // Treat any file inside files/ as canonical (it is a tracked-files dir).
+      if (path.startsWith('files/')) return false;
+      return true;
     });
   const hasWorkingTreeChanges = workingTreeLines.length > 0;
 
