@@ -95,7 +95,7 @@ describe('Sync and Publish CLI Commands', () => {
     const syncPushRes = await runAgenv(['sync', 'testenv', '--push', '--yes'], otherCwd, env);
     if (syncPushRes.code !== 0) console.log('SYNC PUSH ERROR:', syncPushRes.stderr, syncPushRes.stdout);
     expect(syncPushRes.code).toBe(0);
-    expect(syncPushRes.stdout).toContain('PUSH done');
+    expect(syncPushRes.stdout).toContain('Pushed');
 
     // Verify bare repo has it
     const logRes = await runProcess(['git', '--git-dir=' + bareRepo, 'log', '--oneline']);
