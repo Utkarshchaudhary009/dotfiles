@@ -154,4 +154,96 @@ describe('Sync and Publish CLI Commands', () => {
     const showRes = await runProcess(['git', '--git-dir=' + bareRepo, 'show', 'HEAD:files/opencode/opencode.json']);
     expect(showRes.stdout).toContain('edited-locally');
   }, 120000);
+  test('file-level conflicts are refused before expand can overwrite local edits', async () => {
+    const pathKey = Object.keys(process.env).find(k => k.toLowerCase() === 'path') || 'PATH';
+    const env = {
+      HOME: tempHome,
+      USERPROFILE: tempHome,
+      [pathKey]: (process.env[pathKey] || '').split(path.delimiter).filter(p => !p.toLowerCase().includes('github cli')).join(path.delimiter),
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+
+    const opencodeDir = path.join(tempHome, '.config', 'opencode');
+    await fs.mkdir(opencodeDir, { recursive: true });
+    const targetFile = path.join(opencodeDir, 'opencode.json');
+    await fs.writeFile(targetFile, JSON.stringify({ theme: 'base' }));
+
+    const initRes = await runAgenv(['init', '--yes', '--dir', repoPath], repoPath, env);
+    if (initRes.code !== 0) throw new Error('init failed: ' + initRes.stderr);
+    const remoteUrl = `file:///${path.posix.join(...path.resolve(bareRepo).split('/'))}`;
+    const pubRes = await runAgenv(['publish', '--name', 'conflicttest', '--remote', remoteUrl, '--yes'], repoPath, env);
+    if (pubRes.code !== 0) throw new Error('publish failed: ' + pubRes.stderr);
+
+    const cloneDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agenv-sync-test-conflict-clone-'));
+    await runProcess(['git', 'clone', bareRepo, cloneDir], { env });
+    await fs.writeFile(path.join(cloneDir, 'files', 'opencode', 'opencode.json'), JSON.stringify({ theme: 'remote' }));
+    await runProcess(['git', 'add', 'files/opencode/opencode.json'], { cwd: cloneDir, env });
+    await runProcess(['git', 'commit', '-m', 'remote config change'], { cwd: cloneDir, env });
+    await runProcess(['git', 'push'], { cwd: cloneDir, env });
+    await fs.rm(cloneDir, { recursive: true, force: true }).catch(() => {});
+
+    const localEdit = JSON.stringify({ theme: 'local' });
+    await fs.writeFile(targetFile, localEdit);
+
+    const syncRes = await runAgenv(['sync', 'conflicttest', '--yes', '--json'], otherCwd, env);
+    if (syncRes.code !== 1) console.log('CONFLICT SYNC:', syncRes.code, syncRes.stdout, syncRes.stderr);
+    expect(syncRes.code).toBe(1);
+    const payload = JSON.parse(syncRes.stdout);
+    expect(payload.status).toBe('diverged-conflict');
+    expect(payload.conflicts).toEqual([
+      { id: 'opencode:opencode.json', targetRel: 'opencode.json', reason: 'local-and-remote-changed' },
+    ]);
+    expect(await fs.readFile(targetFile, 'utf8')).toBe(localEdit);
+  }, 120000);
+
+
+  test('non-overlapping local tracked drift and remote changes reconcile automatically', async () => {
+    const pathKey = Object.keys(process.env).find(k => k.toLowerCase() === 'path') || 'PATH';
+    const env = {
+      HOME: tempHome,
+      USERPROFILE: tempHome,
+      [pathKey]: (process.env[pathKey] || '').split(path.delimiter).filter(p => !p.toLowerCase().includes('github cli')).join(path.delimiter),
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+
+    const opencodeDir = path.join(tempHome, '.config', 'opencode');
+    await fs.mkdir(opencodeDir, { recursive: true });
+    const targetFile = path.join(opencodeDir, 'opencode.json');
+    await fs.writeFile(targetFile, JSON.stringify({ theme: 'base' }));
+
+    const initRes = await runAgenv(['init', '--yes', '--dir', repoPath], repoPath, env);
+    if (initRes.code !== 0) throw new Error('init failed: ' + initRes.stderr);
+    const remoteUrl = `file:///${path.posix.join(...path.resolve(bareRepo).split('/'))}`;
+    const pubRes = await runAgenv(['publish', '--name', 'nonoverlap', '--remote', remoteUrl, '--yes'], repoPath, env);
+    if (pubRes.code !== 0) throw new Error('publish failed: ' + pubRes.stderr);
+
+    const cloneDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agenv-sync-test-nonoverlap-clone-'));
+    await runProcess(['git', 'clone', bareRepo, cloneDir], { env });
+    await fs.writeFile(path.join(cloneDir, 'remote-unrelated.txt'), 'remote-only');
+    await runProcess(['git', 'add', 'remote-unrelated.txt'], { cwd: cloneDir, env });
+    await runProcess(['git', 'commit', '-m', 'remote unrelated change'], { cwd: cloneDir, env });
+    await runProcess(['git', 'push'], { cwd: cloneDir, env });
+    await fs.rm(cloneDir, { recursive: true, force: true }).catch(() => {});
+
+    const localEdit = JSON.stringify({ theme: 'local-nonoverlap' });
+    await fs.writeFile(targetFile, localEdit);
+
+    const syncRes = await runAgenv(['sync', 'nonoverlap', '--push', '--yes', '--json'], otherCwd, env);
+    if (syncRes.code !== 0) console.log('NONOVERLAP SYNC:', syncRes.code, syncRes.stdout, syncRes.stderr);
+    expect(syncRes.code).toBe(0);
+    const payload = JSON.parse(syncRes.stdout);
+    expect(payload.status).toBe('pull-and-push');
+    expect(payload.conflicts).toEqual([]);
+    expect(await fs.readFile(targetFile, 'utf8')).toBe(localEdit);
+    expect(await fs.readFile(path.join(repoPath, 'remote-unrelated.txt'), 'utf8')).toBe('remote-only');
+    const showRes = await runProcess(['git', '--git-dir=' + bareRepo, 'show', 'HEAD:files/opencode/opencode.json']);
+    expect(showRes.stdout).toContain('local-nonoverlap');
+  }, 120000);
+
 });

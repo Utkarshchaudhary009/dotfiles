@@ -2,7 +2,7 @@ import { gitRemoteState, RemoteState } from './git';
 import { runProcess } from './proc';
 import * as path from 'node:path';
 import { pathExists } from './fs';
-import { Manifest } from './manifest';
+import { Manifest, repoStorePath, TrackedFile } from './manifest';
 import { trackedFileState } from './capture';
 
 export type SyncAction =
@@ -24,20 +24,10 @@ export interface SyncPlan {
   action: SyncAction;
   remote: RemoteState;
   hasLocalChanges: boolean;
-  /**
-   * True when the remote has commits the local branch does not — i.e. a
-   * pull is required to become consistent. The name `remoteIsAhead` is
-   * read as a statement about the remote, not a statement about the
-   * local branch. Mirrors `gitRemoteState`'s "behind" classification
-   * (which describes local's position relative to remote).
-   */
-  remoteIsAhead: boolean;
-  /**
-   * True when the local branch has commits the remote does not — i.e. a
-   * push is required to become consistent. Mirrors `gitRemoteState`'s
-   * "ahead" classification.
-   */
-  remoteIsBehind: boolean;
+  /** True when the remote has commits the local branch does not (pull required). */
+  hasRemoteAhead: boolean;
+  /** True when the local branch has commits the remote does not (push required). */
+  hasRemoteBehind: boolean;
   hasWorkingTreeChanges: boolean;
   conflicts: ConflictFile[];
   nextCommand: string;
@@ -94,8 +84,8 @@ export async function planReconcile(
         action: 'error',
         remote: 'unknown',
         hasLocalChanges: false,
-        remoteIsAhead: false,
-        remoteIsBehind: false,
+        hasRemoteAhead: false,
+        hasRemoteBehind: false,
         hasWorkingTreeChanges: false,
         conflicts: [],
         nextCommand: 'agenv status',
@@ -126,18 +116,19 @@ export async function planReconcile(
     });
   const hasWorkingTreeChanges = workingTreeLines.length > 0;
 
-  // Classify a real file-level conflict: the user's local target differs
-  // from BOTH the repo store AND the incoming remote tree. The remote
-  // comparison uses `git show origin/<branch>:<rel>` against the local
-  // file's hash. A file that differs from the repo store but matches the
-  // incoming remote is NOT a conflict — pull will replace it cleanly.
+  // Classify a real file-level conflict with a three-way comparison:
+  // the user's local target, the local repo-store/base copy, and the
+  // incoming remote repo-store copy must all differ. Local drift plus an
+  // unrelated remote commit is ordinary reconciliation, not a conflict.
   const conflicts: ConflictFile[] = [];
   const drift: ConflictFile[] = [];
   for (const tf of manifest.files) {
     if (!manifest.config.categories.some(c => c.id === tf.category)) continue;
     const state = await trackedFileState(rootDir, manifest, tf);
     if (state !== 'conflict' && state !== 'repo-missing') continue;
-    const isRealConflict = await isTrueRemoteConflict(rootDir, manifest, tf);
+    const isRealConflict = (remote === 'behind' || remote === 'diverged')
+      ? await isTrueRemoteConflict(rootDir, manifest, tf)
+      : false;
     if (isRealConflict) {
       conflicts.push({ id: tf.id, targetRel: tf.targetRel, reason: 'local-and-remote-changed' });
     } else {
@@ -148,20 +139,33 @@ export async function planReconcile(
   const hasLocalChanges = conflicts.length > 0 || drift.length > 0;
   // "remoteAhead" = remote has commits local does not → local must pull.
   // "remoteBehind" = local has commits remote does not → local must push.
-  const remoteAhead = remote === 'behind' || remote === 'diverged';
-  const remoteBehind = remote === 'ahead' || remote === 'diverged';
+  const { hasRemoteAhead: remoteAhead, hasRemoteBehind: remoteBehind } = remoteFlags(remote);
 
   if (remote === 'unknown') {
     return {
       action: 'error',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv status',
       reason: 'Could not determine remote state',
+    };
+  }
+
+  if (conflicts.length > 0) {
+    return {
+      action: 'diverged-conflict',
+      remote,
+      hasLocalChanges,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
+      hasWorkingTreeChanges,
+      conflicts,
+      nextCommand: `agenv status`,
+      reason: `${conflicts.length} tracked file conflict${conflicts.length === 1 ? '' : 's'} require manual resolution before sync can expand`,
     };
   }
 
@@ -171,8 +175,8 @@ export async function planReconcile(
         action: 'noop',
         remote,
         hasLocalChanges,
-        remoteIsAhead: remoteAhead,
-        remoteIsBehind: remoteBehind,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -183,8 +187,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -200,8 +204,8 @@ export async function planReconcile(
         action: 'diverged-rebase',
         remote,
         hasLocalChanges,
-        remoteIsAhead: remoteAhead,
-        remoteIsBehind: remoteBehind,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -212,8 +216,8 @@ export async function planReconcile(
       action: 'diverged-conflict',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: 'agenv sync --rebase',
@@ -227,8 +231,8 @@ export async function planReconcile(
       action: 'noop',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -241,8 +245,8 @@ export async function planReconcile(
       action: 'pull',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -258,8 +262,8 @@ export async function planReconcile(
       action: 'pull',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -278,8 +282,8 @@ export async function planReconcile(
         action: 'pull-and-push',
         remote,
         hasLocalChanges,
-        remoteIsAhead: remoteAhead,
-        remoteIsBehind: remoteBehind,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
         hasWorkingTreeChanges,
         conflicts,
         nextCommand: '',
@@ -290,8 +294,8 @@ export async function planReconcile(
       action: hasWorkingTreeChanges ? 'pull' : 'capture-and-push',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -306,8 +310,8 @@ export async function planReconcile(
       action: 'pull-and-push',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -320,8 +324,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -338,8 +342,8 @@ export async function planReconcile(
       action: 'capture-and-push',
       remote,
       hasLocalChanges,
-      remoteIsAhead: remoteAhead,
-      remoteIsBehind: remoteBehind,
+      hasRemoteAhead: remoteAhead,
+      hasRemoteBehind: remoteBehind,
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
@@ -351,8 +355,8 @@ export async function planReconcile(
     action: 'noop',
     remote,
     hasLocalChanges,
-    remoteIsAhead: remoteAhead,
-    remoteIsBehind: remoteBehind,
+    hasRemoteAhead: remoteAhead,
+    hasRemoteBehind: remoteBehind,
     hasWorkingTreeChanges,
     conflicts,
     nextCommand: '',
@@ -380,7 +384,7 @@ export function isInsideRepo(rootDir: string, filePath: string): boolean {
 async function isTrueRemoteConflict(
   rootDir: string,
   manifest: Manifest,
-  tf: { id: string; category: string; targetRel: string },
+  tf: TrackedFile,
 ): Promise<boolean> {
   // Only meaningful when we have a fetchable origin with an upstream.
   const upstreamRes = await runProcess(
@@ -403,22 +407,24 @@ async function isTrueRemoteConflict(
     return false; // local file does not exist or unreadable
   }
 
-  // Hash the remote's view of the same path. We avoid `git show
-  // <upstream>:<path>` writing to a temp file by piping the file bytes
-  // through sha256sum, which avoids any shell-true / path-traversal
-  // surface. If the remote has no such path the command exits non-zero
+  // Hash the remote's canonical repo-store copy without writing it to a
+  // temp file. If the remote has no such path the command exits non-zero
   // and we return false (no conflict can be asserted).
   const remoteHashRes = await runProcess(
-    ['git', 'show', `${upstream}:${tf.targetRel}`],
+    ['git', 'show', `${upstream}:${path.relative(rootDir, repoStorePath(rootDir, tf)).replace(/\\/g, '/')}`],
     { cwd: rootDir },
   );
   if (remoteHashRes.code !== 0) return false;
-  const remoteHash = (await import('node:crypto'))
-    .createHash('sha256')
-    .update(remoteHashRes.stdout)
-    .digest('hex');
+  const crypto = await import('node:crypto');
+  const remoteHash = crypto.createHash('sha256').update(remoteHashRes.stdout).digest('hex');
+  let baseHash: string;
+  try {
+    baseHash = await (await import('./fs')).fileHash(repoStorePath(rootDir, tf));
+  } catch {
+    return localHash !== remoteHash;
+  }
 
-  return localHash !== remoteHash;
+  return localHash !== baseHash && remoteHash !== baseHash && localHash !== remoteHash;
 }
 
 export async function stageCanonicalFiles(rootDir: string): Promise<string[]> {
@@ -429,4 +435,11 @@ export async function stageCanonicalFiles(rootDir: string): Promise<string[]> {
     }
   }
   return staged;
+}
+
+export function remoteFlags(remote: RemoteState): { hasRemoteAhead: boolean; hasRemoteBehind: boolean } {
+  return {
+    hasRemoteAhead: remote === 'behind' || remote === 'diverged',
+    hasRemoteBehind: remote === 'ahead' || remote === 'diverged',
+  };
 }

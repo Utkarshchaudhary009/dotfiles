@@ -32,7 +32,7 @@ description: Use when the user wants to backup their environment, manage dotfile
 ## Deploy / Sync Commands
 - `agenv expand [--dry-run] [--force] [--yes] [target]` — Deploys the environment to `$HOME`. Idempotent operation; modified local files are skipped unless forced.
 - `agenv update [target]` — Pulls latest changes from remote + expands.
-- `agenv sync [target] [--push] [--no-push] [--no-scan] [--rebase] [--yes] [--json]` — Pulls → expands → commits and pushes local changes. Use `--push` to push automatically, or `--no-push` to only report. Pass `--rebase` to rebase local commits onto the remote instead of `git pull --ff-only`; pass `--json` to emit a structured `SyncResult` for automation. 
+- `agenv sync [target] [--push] [--no-push] [--no-scan] [--rebase] [--yes] [--json]` — Plans local/repo/remote reconciliation, pulls, captures safe tracked-file drift before expand, expands, then commits and pushes canonical environment files when requested. Use `--push` to push automatically, or `--no-push` to only report. Pass `--rebase` to rebase local commits onto the remote instead of `git pull --ff-only`; pass `--json` to emit a structured `SyncResult` (`status`, `hasRemoteAhead`, `hasRemoteBehind`, `conflicts`, `nextCommand`) for automation. If sync reports file-level conflicts, do not force expand; run the recommended command and resolve the listed IDs first.
 - `agenv push [-m, --message <msg>]` — Commits and pushes changes.
 - `agenv status [target] [--json]` — Shows current status (local changes, sync state).
 - `agenv list [target]` — Lists files tracked in the environment.
@@ -58,7 +58,7 @@ description: Use when the user wants to backup their environment, manage dotfile
 - `agenv self-update` — Updates the agenv CLI to the latest GitHub release.
 
 ## Agent Workflow Recipes
-1. **Help user capture their environment:** 
+1. **Help user capture their environment:**
    - Run `agenv envs`.
    - If none exist, run `agenv init --yes` in their chosen directory.
    - Run `agenv publish --yes` to get the repository URL.

@@ -21,8 +21,11 @@ export interface SyncOptions {
 }
 
 export interface SyncResult {
+  status: SyncAction;
   action: SyncAction;
   remote: SyncPlan['remote'];
+  hasRemoteAhead: boolean;
+  hasRemoteBehind: boolean;
   pulledFiles: number;
   pulledCommits: number;
   pushed: number;
@@ -96,7 +99,9 @@ export async function syncCommand(target: string | undefined, options: SyncOptio
   }
 
   if (plan.action === 'diverged-conflict') {
-    const msg = `Branches diverged. Run: ${plan.nextCommand}\nIf rebase is not safe, resolve manually and retry.`;
+    const msg = plan.conflicts.length > 0
+      ? `${plan.conflicts.length} tracked file conflict${plan.conflicts.length === 1 ? '' : 's'}. Run: ${plan.nextCommand}\nResolve the listed file(s) before retrying sync.`
+      : `Branches diverged. Run: ${plan.nextCommand}\nIf rebase is not safe, resolve manually and retry.`;
     return finish(plan, { pulledFiles: 0, pulledCommits: 0, pushed: 0, expanded: 0, captured: 0, pushSkippedReason: '' }, options, msg);
   }
 
@@ -248,8 +253,11 @@ function countPulledFiles(stdout: string): number {
 
 function finish(plan: SyncPlan, counts: SyncCounts, options: SyncOptions, errorMessage: string | null = null): SyncResult {
   const result: SyncResult = {
+    status: plan.action,
     action: plan.action,
     remote: plan.remote,
+    hasRemoteAhead: plan.hasRemoteAhead,
+    hasRemoteBehind: plan.hasRemoteBehind,
     pulledFiles: counts.pulledFiles,
     pulledCommits: counts.pulledCommits,
     pushed: counts.pushed,

@@ -226,7 +226,7 @@ agenv push -m "Add custom SSH config"
 
 ## `agenv sync [target]`
 
-**Purpose:** A unified command to keep environments fully synchronized. It pulls remote changes (fast-forward by default, or rebase with `--rebase`), expands them to your local system, then checks for local changes. With `--push`, it commits and pushes local modifications back to the remote. Without `--push`, it interactively prompts you or skips the push step.
+**Purpose:** A unified command to keep environments fully synchronized. It plans local, repository, and remote state before mutating anything; pulls remote changes (fast-forward by default, or rebase with `--rebase`), captures safe local drift, expands tracked files, then commits and pushes canonical environment state when requested. If the same tracked file changed both locally and remotely, sync stops before expand can overwrite the local edit and reports the conflict IDs plus the next diagnostic command.
 
 **Options:**
 | Option | Description |
@@ -236,7 +236,7 @@ agenv push -m "Add custom SSH config"
 | `--no-scan` | Skip auto-capture of newly discoverable files. |
 | `--rebase` | Rebase local commits onto the remote when branches have diverged (default is `git pull --ff-only`). |
 | `--yes` | Skip interactive prompts. |
-| `--json` | Emit a structured JSON `SyncResult` on stdout instead of human output. |
+| `--json` | Emit a structured JSON `SyncResult` on stdout instead of human output. The payload includes `status`, `action`, `hasRemoteAhead`, `hasRemoteBehind`, `conflicts`, and `nextCommand`. |
 
 **Usage Examples:**
 ```bash
@@ -248,6 +248,9 @@ agenv sync work --push
 
 # Rebase local commits onto the remote instead of pulling with --ff-only
 agenv sync --rebase --push
+
+# Inspect conflicts or other actionable states after sync reports them
+agenv status
 ```
 
 ---
