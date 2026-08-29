@@ -207,8 +207,26 @@ export async function planReconcile(
   }
 
   if (remoteBehind) {
+    // When there is real manifest drift we must commit it before pushing,
+    // so we combine pull and push. When there is only a dirty working tree
+    // (untracked files outside the manifest), we still want to pull first
+    // so we don't lose remote commits; the executor will not auto-commit
+    // arbitrary untracked files anyway.
+    if (hasLocalChanges) {
+      return {
+        action: 'pull-and-push',
+        remote,
+        hasLocalChanges,
+        hasRemoteAhead: remoteAhead,
+        hasRemoteBehind: remoteBehind,
+        hasWorkingTreeChanges,
+        conflicts,
+        nextCommand: '',
+        reason: 'Remote has commits and local manifest drift — pull then push',
+      };
+    }
     return {
-      action: hasLocalChanges || hasWorkingTreeChanges ? 'pull-and-push' : 'capture-and-push',
+      action: hasWorkingTreeChanges ? 'pull' : 'capture-and-push',
       remote,
       hasLocalChanges,
       hasRemoteAhead: remoteAhead,
@@ -216,11 +234,9 @@ export async function planReconcile(
       hasWorkingTreeChanges,
       conflicts,
       nextCommand: '',
-      reason: hasLocalChanges
-        ? 'Local has unpushed commits and working tree has changes — pull then push'
-        : hasWorkingTreeChanges
-          ? 'Local has working tree changes and remote is behind — pull then push'
-          : 'Local has unpushed commits',
+      reason: hasWorkingTreeChanges
+        ? 'Remote has commits and working tree is dirty — pull, then commit what the manifest owns'
+        : 'Local has unpushed commits',
     };
   }
 
